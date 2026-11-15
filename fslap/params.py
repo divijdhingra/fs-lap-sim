@@ -53,8 +53,13 @@ CAR_GROUPS = [
         P("brake_bias", "Brake bias (front)", "%", 65, 40, 85, 0.5, "Share of the total braking force sent to the front tyres. The best value is where front and rear tyres reach their grip limit together."),
     ]),
     ("Suspension", [
-        P("roll_stiff_f", "Front roll stiffness", "N·m/deg", 450, 50, 2000, 10, "How strongly the front suspension (springs plus anti-roll bar) resists body roll."),
-        P("roll_stiff_r", "Rear roll stiffness", "N·m/deg", 450, 50, 2000, 10, "How strongly the rear suspension resists body roll. The front to rear split decides which axle carries more of the cornering load transfer, which sets the understeer or oversteer balance."),
+        P("wheel_rate_f", "Front wheel rate", "N/mm", 35, 5, 150, 1, "Spring stiffness measured at the wheel: the force needed to push one front wheel up by 1 mm. It is the spring rate multiplied by the square of the motion ratio (how far the spring moves per mm of wheel travel)."),
+        P("wheel_rate_r", "Rear wheel rate", "N/mm", 35, 5, 150, 1, "Spring stiffness measured at one rear wheel."),
+        P("arb_f", "Front anti-roll bar", "N·m/deg", 0, 0, 1500, 10, "Extra resistance to body roll from a front anti-roll bar. It stiffens roll without stiffening the ride. More at the front shifts cornering load transfer forward, which adds understeer."),
+        P("arb_r", "Rear anti-roll bar", "N·m/deg", 0, 0, 1500, 10, "Extra roll resistance from a rear anti-roll bar. More at the rear adds oversteer."),
+        P("damper_f", "Front damper rate", "N·s/m", 2000, 100, 12000, 50, "Damper force at the wheel for each metre per second of suspension movement. Dampers do not change how far the body finally moves, only how quickly it gets there and whether it overshoots."),
+        P("damper_r", "Rear damper rate", "N·s/m", 2000, 100, 12000, 50, "Damper force per metre per second at one rear wheel."),
+        P("unsprung", "Unsprung mass per corner", "kg", 10, 3, 25, 0.5, "Mass of one wheel, tyre, upright and brake: the parts that are not carried by the springs."),
     ]),
 ]
 

@@ -53,9 +53,19 @@ class Vehicle:
         self.i_max = c["batt_imax"]
         self.regen_w = c["regen_kw"] * 1000.0
         self.bias = c["brake_bias"] / 100.0
-        kf, kr = c["roll_stiff_f"], c["roll_stiff_r"]
-        self.k_roll = kf + kr
-        self.rsd = kf / (kf + kr)            # roll stiffness distribution, front share
+        # Springs, anti-roll bars and dampers, all expressed at the wheel.
+        self.kw_f, self.kw_r = c["wheel_rate_f"] * 1000.0, c["wheel_rate_r"] * 1000.0     # N/m
+        self.c_f, self.c_r = c["damper_f"], c["damper_r"]                                # N·s/m
+        self.m_unsprung = c["unsprung"]
+        self.m_sprung = max(20.0, self.m - 4 * self.m_unsprung)
+        # Roll stiffness of an axle (N·m/rad): two springs half a track width from
+        # the centre line, plus the anti-roll bar.
+        self.kroll_f = self.kw_f * self.tf ** 2 / 2 + math.degrees(c["arb_f"])
+        self.kroll_r = self.kw_r * self.tr ** 2 / 2 + math.degrees(c["arb_r"])
+        self.croll_f = self.c_f * self.tf ** 2 / 2          # roll damping, N·m·s/rad
+        self.croll_r = self.c_r * self.tr ** 2 / 2
+        self.k_roll = math.radians(self.kroll_f + self.kroll_r)      # N·m/deg, both axles
+        self.rsd = self.kroll_f / (self.kroll_f + self.kroll_r)     # roll stiffness distribution, front share
         self.p_cap = cond["power_cap"] * 1000.0
         self.track_grip = cond["track_grip"] / 100.0
         self.rr = self.crr * self.m * G
@@ -144,9 +154,14 @@ class Vehicle:
             return ax, True
         # Accelerating shifts load off the front tyres. If that leaves the front
         # unable to hold the corner, ease off until it can.
-        lo = -res / m
-        if not self._fx_left(v, lo, ay)[2]:
-            return lo, False
+        coast = -res / m
+        xf, xr, ok0 = self._fx_left(v, 0.0, ay)
+        if ok0 and min(self._traction(xf, xr), fm) >= res:
+            lo = 0.0                       # can at least hold this speed
+        elif self._fx_left(v, coast, ay)[2]:
+            lo = coast
+        else:
+            return coast, False
         hi = ax
         for _ in range(8):
             mid = 0.5 * (lo + hi)

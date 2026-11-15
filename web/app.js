@@ -171,6 +171,12 @@ const CHARTS = [
   { key: "dt", title: "Time gained or lost by B relative to A (above zero = B is behind)", unit: "s", cmp: true, d: 2, zero: true,
     get: (c, all) => all.A.ch.t.map((t, i) => (all.B.ch.t[i] ?? NaN) - t), single: true },
 ];
+const RIDE_CHARTS = [
+  { key: "roll_dyn", title: "Body roll (leaning right +, left −)", unit: "deg", get: (c) => c.roll_dyn, d: 2, zero: true },
+  { key: "pitch", title: "Pitch (nose down under braking +, nose up under power −)", unit: "deg", get: (c) => c.pitch, d: 2, zero: true },
+  { key: "dv_fl", title: "Front-left damper speed (compressing +, extending −)", unit: "mm/s", get: (c) => c.dv_fl, d: 0, zero: true },
+  { key: "dfz", title: "Front-left tyre load: time-based model minus settled model", unit: "N", get: (c) => c.fzd_fl.map((x, i) => x - c.fz_fl[i]), d: 0, zero: true },
+];
 function niceTicks(lo, hi, n = 4) {
   const span = hi - lo || 1, step0 = span / n, mag = 10 ** Math.floor(Math.log10(step0));
   const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => span / s <= n + 0.5) || mag * 10;
@@ -233,12 +239,11 @@ function chartBlock(host, id, title) {
   return el;
 }
 
-function drawCharts() {
-  const host = $("charts"), all = state.results, A = all.A;
-  if (!A) return;
+function drawSet(host, defs) {
+  const all = state.results, A = all.A;
   const both = state.compare && all.B, n = A.ch.v.length;
   const bands = A.corners.map((c) => ({ a: c.start_i, b: c.end_i, on: c.n === state.corner }));
-  const list = CHARTS.filter((c) => !c.cmp || both);
+  const list = defs.filter((c) => !c.cmp || both);
   host.querySelectorAll(".chart").forEach((el) => { if (!list.some((c) => c.key === el.dataset.id)) el.remove(); });
   list.forEach((c, idx) => {
     const el = chartBlock(host, c.key, `${c.title}, ${c.unit}`), cv = el.querySelector("canvas");
@@ -255,6 +260,14 @@ function drawCharts() {
       cv.addEventListener("click", (e) => { const j = cv._idx(e.clientX), cc = state.results.A.corners.find((q) => j >= q.start_i && j <= q.end_i); if (cc) selectCorner(cc.n); });
     }
   });
+}
+
+function drawCharts() {
+  const all = state.results, A = all.A;
+  if (!A) return;
+  const both = state.compare && all.B;
+  drawSet($("charts"), CHARTS);
+  drawSet($("rideCharts"), RIDE_CHARTS);
   $("chartLegend").innerHTML = both ? `<span><i class="sw a"></i>Setup A</span><span><i class="sw b"></i>Setup B</span>` : "";
 
   // endurance lap-by-lap
@@ -270,6 +283,45 @@ function drawCharts() {
     mk("lapt", "Lap time, s (lap 1 is from a standing start)", (r) => r.time);
     mk("soc", "Battery charge at the end of each lap, %", (r) => r.soc_end);
   }
+}
+
+// ---------- suspension and damper panel ----------
+function drawBars(cv, labels, series, unit) {
+  const { ctx, w, h } = setupCanvas(cv);
+  const L = 8, R = 8, T = 18, B = 22, n = labels.length, k = series.length;
+  const hi = Math.max(1, ...series.flatMap((s) => s.data)) * 1.12;
+  const gw = (w - L - R) / n, bw = Math.min(34, (gw - 14) / k - 2);
+  ctx.font = "10.5px Inter, system-ui, sans-serif"; ctx.textAlign = "center";
+  ctx.strokeStyle = "#4a4d4a"; ctx.beginPath(); ctx.moveTo(L, h - B + 0.5); ctx.lineTo(w - R, h - B + 0.5); ctx.stroke();
+  labels.forEach((lab, i) => {
+    const cx = L + gw * (i + 0.5);
+    ctx.fillStyle = COL.ink3; ctx.textBaseline = "top"; ctx.fillText(lab, cx, h - B + 6);
+    series.forEach((s, j) => {
+      const v = s.data[i], bh = (v / hi) * (h - T - B), x = cx - (k * (bw + 2)) / 2 + j * (bw + 2) + 1, y = h - B - bh;
+      ctx.fillStyle = s.colour; ctx.beginPath(); ctx.roundRect(x, y, bw, bh, [4, 4, 0, 0]); ctx.fill();
+      ctx.fillStyle = COL.ink2; ctx.textBaseline = "bottom"; ctx.fillText(v.toFixed(v < 10 ? 1 : 0) + unit, x + bw / 2, y - 3);
+    });
+  });
+}
+function drawRide() {
+  const A = state.results.A, B = state.compare ? state.results.B : null;
+  if (!A || !A.ride) return;
+  const r = A.ride, rb = B && B.ride;
+  const tiles = [
+    ["Ride frequency, front / rear", (q) => `${fmt(q.freq_f, 2)} / ${fmt(q.freq_r, 2)}`, "Hz", "How fast the body bounces on its springs. FS cars with wings usually sit between 3 and 4.5 Hz."],
+    ["Damping ratio, front / rear", (q) => `${fmt(q.zeta_f, 2)} / ${fmt(q.zeta_r, 2)}`, "", "1.0 is the least damping that stops bouncing with no overshoot. 0.6 to 0.8 is a common target."],
+    ["Roll damping ratio", (q) => fmt(q.zeta_roll, 2), "", "Below 1 the body overshoots its lean on turn-in, then settles."],
+    ["Roll per g of cornering", (q) => fmt(q.roll_gradient, 2), "deg/g", "Roll gradient: how far the body leans for each g of cornering."],
+    ["Peak roll", (q) => fmt(q.roll_max, 2), "deg", "Largest lean angle reached on this lap."],
+    ["Peak dive / squat", (q) => `${fmt(q.dive_max, 2)} / ${fmt(q.squat_max, 2)}`, "deg", "Nose down under braking, nose up under power."],
+    ["Peak damper speed, front / rear", (q) => `${fmt(q.dv_f_max, 0)} / ${fmt(q.dv_r_max, 0)}`, "mm/s", "Fastest suspension movement caused by the driver's inputs."],
+    ["Most suspension travel used, front / rear", (q) => `${fmt(q.sus_f_max, 1)} / ${fmt(q.sus_r_max, 1)}`, "mm", "Compression from the standing ride height, from downforce, braking and squat."],
+  ];
+  $("rideKpis").innerHTML = tiles.map(([l, f, u, tip]) => `<div class="kpi small" title="${tip}"><div class="l">${l}</div><div class="v">${f(r)}<small>${u}</small></div>` +
+    `<div class="d">${rb ? `<i class="sw b"></i>B ${f(rb)}` : ""}</div></div>`).join("");
+  const labels = r.bins.map((b, i) => `${i ? r.bins[i - 1] : 0} to ${b}`).concat([`over ${r.bins[r.bins.length - 1]}`]);
+  for (const [id, key] of [["histF", "hist_f"], ["histR", "hist_r"]])
+    drawBars($(id), labels, [{ data: r[key], colour: COL.A }].concat(rb ? [{ data: rb[key], colour: COL.B }] : []), "%");
 }
 
 // ---------- KPI tiles ----------
@@ -341,7 +393,7 @@ function drawTable() {
     `<tr data-n="${c.n}" class="${c.n === state.corner ? "on" : ""}"><td>${c.n}</td><td>${c.dir}</td><td>${fmt(c.radius, 1)}</td><td>${fmt(kmh(c.v_entry), 1)}</td><td>${fmt(kmh(c.v_apex), 1)}</td><td>${fmt(kmh(c.v_exit), 1)}</td><td>${fmt(c.ay_peak, 2)}</td><td>${fmt(c.brake_peak, 2)}</td><td>${fmt(c.time, 2)}</td>${B && B.corners[i] ? `<td>${signed(B.corners[i].time - c.time, 2)}</td>` : ""}</tr>`).join("") + "</tbody>";
 }
 
-function renderAll() { drawKpis(); drawCorner(); drawTable(); drawMap(); drawCharts(); }
+function renderAll() { drawKpis(); drawCorner(); drawTable(); drawMap(); drawCharts(); drawRide(); }
 
 // ---------- running the simulation ----------
 function schedule(delay = 300) { clearTimeout(runTimer); runTimer = setTimeout(runNow, delay); }
@@ -422,7 +474,7 @@ function wire() {
   map.addEventListener("mouseleave", () => setCursor(null));
   map.addEventListener("click", (e) => mapPointer(e, true));
   $("ctable").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-n]"); if (tr) selectCorner(+tr.dataset.n); });
-  window.addEventListener("resize", () => { drawMap(); drawCharts(); });
+  window.addEventListener("resize", () => { drawMap(); drawCharts(); drawRide(); });
 }
 
 wire();

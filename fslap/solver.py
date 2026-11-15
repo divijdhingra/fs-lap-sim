@@ -12,6 +12,7 @@ Method (the standard quasi-steady-state lap time recipe):
 """
 import math
 from .vehicle import Vehicle, G, SOC_MIN
+from .ride import ride_replay
 
 
 def _corner_limits(veh, ks):
@@ -207,7 +208,9 @@ def simulate(car, cond, track):
     if shown is None:
         shown = res; shown_lap = 1
     ch = shown["ch"]
-    npt = len(ch["v"])
+    # Replay the lap through the spring and damper model (see ride.py).
+    veh.set_state(soc0, wear0)
+    ride_ch, ride = ride_replay(veh, ch["t"], ch["v"], ch["ax"], ch["ay"])
     out = dict(
         track_id=track["id"], kind=track["kind"], laps=laps, ds=ds, shown_lap=shown_lap,
         time=round(total, 3), lap_time=round(shown["time"], 3), finished=finished,
@@ -221,8 +224,9 @@ def simulate(car, cond, track):
         mass=veh.m, v_top=round(veh.v_top, 2), p_avail=round(Vehicle(car, cond).p_elec / 1000.0, 1),
         lap_rows=lap_rows if laps > 1 else [],
         corners=_find_corners(track, ch),
-        ch=_round_ch(ch),
+        ch=_round_ch(ch), ride=ride,
     )
+    out["ch"].update(ride_ch)
     if track["kind"] == "skidpad":
         ts = [_time_at(ch, ds, b) - _time_at(ch, ds, a) for a, b in track["timed"]]
         out["time"] = round(sum(ts) / len(ts), 3)

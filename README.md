@@ -4,10 +4,12 @@ An interactive lap time simulator for **electric Formula Student cars**. Enter t
 
 ![Preview](docs/preview.png)
 
+![Suspension and dampers panel](docs/suspension.png)
+
 ## What it does
 
 - **Events:** 75 m acceleration, skidpad, an FS UK sprint lap, the 22 km FS UK endurance (with battery energy tracked lap by lap), and flying laps of the Silverstone and Hockenheim Grand Prix circuits.
-- **Car inputs:** mass, wheelbase, track widths, centre of gravity, tyre grip and load sensitivity, downforce and drag, motor torque/power/speed, gear ratio, driven wheels, battery capacity/voltage/resistance/current limit, regen, brake bias and roll stiffness. The defaults are a typical mid-field electric FS car, not a specific team's car.
+- **Car inputs:** mass, wheelbase, track widths, centre of gravity, tyre grip and load sensitivity, downforce and drag, motor torque/power/speed, gear ratio, driven wheels, battery capacity/voltage/resistance/current limit, regen, brake bias, spring rates, anti-roll bars and damper rates. The defaults are a typical mid-field electric FS car, not a specific team's car.
 - **Conditions:** battery charge, power limit, tyre wear, track grip (dry to wet) and air temperature.
 - **Per-corner view:** click a corner on the map for entry, minimum and exit speed, cornering and braking g, tyre loads, grip used on each axle, body roll, motor torque and battery power, for setup A and B.
 
@@ -25,6 +27,7 @@ The lowest of those speeds at each point is the fastest possible lap for a perfe
 | --- | --- |
 | `fslap/params.py` | Every input, its unit, default and explanation |
 | `fslap/vehicle.py` | Car model: tyres, aero, load transfer, motor, battery, brakes |
+| `fslap/ride.py` | Time-based spring and damper replay: roll, pitch, heave, damper speeds |
 | `fslap/solver.py` | The lap solver, energy accounting and corner detection |
 | `tools/build_tracks.py` | Builds `data/tracks.json` from rulebook dimensions, open racing lines and GPS |
 | `web/` and `index.html` | The page: track map, charts and tables |
@@ -32,15 +35,17 @@ The lowest of those speeds at each point is the fastest possible lap for a perfe
 
 ## Assumptions
 
-Perfect driver on a fixed line. Flat track. No transients, so springs and dampers are not simulated; suspension enters through roll stiffness distribution and roll angle only. Roll centres at ground level. Tyres are a peak grip coefficient with linear load sensitivity and a friction ellipse for combined cornering and braking; no tyre temperature, camber or toe. Tyre wear is a linear grip loss up to 12% when fully worn. All-wheel drive splits torque in proportion to axle grip. Regen keeps the set brake balance and is off below 5 km/h. Battery limits are held constant within a lap and updated between laps. The endurance driver change is not timed.
+Perfect driver on a fixed line. Flat track. Lap time comes from the settled model; springs and dampers are simulated by replaying the finished lap through time (`fslap/ride.py`), which shows body movement, damper speeds and tyre load overshoot but does not yet change lap time. In that replay dampers are linear, tyres are rigid vertically, the road is smooth, inputs build with a 0.08 s lag, and roll and pitch inertia use assumed radii of gyration (0.30 m and 0.60 m). Roll centres at ground level. Tyres are a peak grip coefficient with linear load sensitivity and a friction ellipse for combined cornering and braking; no tyre temperature, camber or toe. Tyre wear is a linear grip loss up to 12% when fully worn. All-wheel drive splits torque in proportion to axle grip. Regen keeps the set brake balance and is off below 5 km/h. Battery limits are held constant within a lap and updated between laps. The endurance driver change is not timed.
 
 ## Validation so far
 
 | Check | Simulator (default car) | Reference |
 | --- | --- | --- |
 | 75 m acceleration | 4.08 s | about 3.3 s (best AWD) to 4.5 s for competitive electric FS cars |
-| Skidpad | 5.01 s | about 4.7 to 5.3 s |
+| Skidpad | 4.97 s | about 4.7 to 5.3 s |
 | Skidpad, no wings, constant grip | within 0.06 s | textbook v = sqrt(mu g R) |
+| Spring and damper replay, settled values | identical tyre loads and roll angle | the steady model |
+| Spring and damper replay, overshoot after a sudden input | within 2% | textbook exp(-pi z / sqrt(1 - z^2)) |
 | FS UK endurance lap against a logged stint | speed trace correlation 0.96, lap about 19% quicker | logged GPS laps |
 
 The last row matters: the shape of the lap is right, but a generic car with a perfect driver is quicker than a real driver in a real car. Absolute lap times should not be quoted as accurate until the inputs are a real car's figures.

@@ -124,3 +124,11 @@ form details[open] summary::after { content: "–"; }
   #map { height: 340px; }
   .status { text-align: left; }
 }
+
+.kpi.small { padding: 10px 12px; cursor: help; }
+.kpi.small .v { font-size: 18px; }
+#rideKpis { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin-bottom: 6px; }
+.hist { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
+.hist canvas { width: 100%; height: 150px; display: block; }
+.hist .ct { font-size: 12px; color: var(--ink2); margin: 8px 0 2px; }
+@media (max-width: 1100px) { .hist { grid-template-columns: 1fr; } }
