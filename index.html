@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FS Lap Sim: electric Formula Student lap time simulator</title>
+<meta name="description" content="Interactive lap time simulator for electric Formula Student cars. Change the car, pick an event, and see what happens at every corner.">
+<link rel="stylesheet" href="web/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><path d="M5 22c0-9 5-15 12-15 5 0 9 3 9 7s-3 6-7 6h-4c-2 0-3 1-3 3v2" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="12" cy="26" r="2.5" fill="currentColor"/></svg>
+    <div>
+      <h1>FS Lap Sim</h1>
+      <p>Electric Formula Student lap time simulator</p>
+    </div>
+  </div>
+  <nav id="tracks" class="tabs" aria-label="Event"></nav>
+  <div id="status" class="status" role="status">Loading physics engine…</div>
+</header>
+
+<main class="layout">
+  <aside class="side" aria-label="Car setup">
+    <div class="setup-head">
+      <div class="seg" role="tablist" aria-label="Setup">
+        <button id="tabA" class="on" role="tab"><i class="sw a"></i>Setup A</button>
+        <button id="tabB" role="tab"><i class="sw b"></i>Setup B</button>
+      </div>
+      <label class="check"><input type="checkbox" id="compare"> Compare A with B</label>
+    </div>
+    <div class="setup-actions">
+      <button id="copy" class="ghost">Copy A into B</button>
+      <button id="reset" class="ghost">Reset this setup</button>
+    </div>
+    <form id="form" autocomplete="off"></form>
+  </aside>
+
+  <section class="main">
+    <div id="kpis" class="kpis"></div>
+    <div id="notice" class="notice" hidden></div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="card-head">
+          <h2>Track map</h2>
+          <label class="sel">Colour by
+            <select id="colour">
+              <option value="v">Speed</option>
+              <option value="ay">Cornering g</option>
+              <option value="ax">Braking / acceleration g</option>
+              <option value="p">Battery power</option>
+              <option value="grip">Tyre grip used</option>
+            </select>
+          </label>
+        </div>
+        <div class="map-wrap">
+          <canvas id="map"></canvas>
+          <div id="tip" class="tip" hidden></div>
+        </div>
+        <div id="legend" class="legend"></div>
+        <p class="hint">Hover the track to read the car's state at that point. Click a numbered corner to open its details.</p>
+      </div>
+
+      <div class="card" id="cornerCard">
+        <div class="card-head"><h2 id="cornerTitle">Corner details</h2>
+          <div class="nav"><button id="prevC" class="ghost" aria-label="Previous corner">‹</button><button id="nextC" class="ghost" aria-label="Next corner">›</button></div>
+        </div>
+        <div id="corner"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Along the lap</h2><div id="chartLegend" class="series-legend"></div></div>
+      <div id="charts"></div>
+    </div>
+
+    <div class="card" id="lapsCard" hidden>
+      <div class="card-head"><h2>Endurance, lap by lap</h2></div>
+      <div id="lapCharts"></div>
+    </div>
+
+    <div class="card" id="tableCard">
+      <div class="card-head"><h2>All corners</h2></div>
+      <div class="table-wrap"><table id="ctable"></table></div>
+    </div>
+
+    <details class="card about">
+      <summary><h2>How the simulator works, and what it assumes</h2></summary>
+      <div class="about-body">
+        <p><b>Method.</b> This is a <i>quasi-steady-state</i> simulation. The track is cut into short steps (0.25 to 2 m). At each step the car is assumed to be in balance for its current speed. The solver first finds the highest speed the car could hold through each bend, then drives forward accelerating as hard as tyres and motor allow, then works backward from each corner to find where braking must begin. The result is the theoretical fastest lap for a perfect driver.</p>
+        <p><b>What is modelled.</b> Tyre grip that falls as tyre load rises (load sensitivity); weight shifting between tyres under braking, acceleration and cornering (load transfer), split front to rear by roll stiffness; downforce and drag growing with speed squared; combined cornering and braking or accelerating grip (friction ellipse); a motor with a torque limit, a power limit and a top speed that falls with battery voltage; a battery with voltage that drops as it empties, internal resistance and a current limit; the 80 kW rules power limit; fixed brake bias; regenerative braking on the driven axle; tyre wear and track grip as grip scalings; air density from temperature.</p>
+        <p><b>Assumptions and limits.</b></p>
+        <ul>
+          <li>Perfect driver, always on the limit, on a fixed driving line. Real laps are slower.</li>
+          <li>No transients: dampers, springs and the time the car takes to roll, pitch and change direction are not simulated. Suspension enters only through roll stiffness (which axle takes the cornering load transfer) and the resulting body roll angle. Damper modelling needs a time-based simulation and is planned as a later layer.</li>
+          <li>Roll centres are taken at ground level and the whole car rolls as one mass.</li>
+          <li>Tyres use a peak grip coefficient with a straight-line load sensitivity, not a full tyre model. No tyre temperature. Camber and toe are not modelled.</li>
+          <li>Tyre wear is a straight-line grip loss up to 12% at fully worn.</li>
+          <li>All-wheel drive assumes torque is shared between axles in proportion to available grip.</li>
+          <li>Regen assumes the brake balance stays at the set bias, with regen replacing part of the friction braking on the driven axle. No regen below 5 km/h, as in the rules.</li>
+          <li>Within one lap the battery limits are fixed at their start-of-lap values; charge is updated lap by lap.</li>
+          <li>The track is flat. Hills and banking are ignored.</li>
+          <li>Endurance ignores the driver change stop, which is not timed.</li>
+        </ul>
+        <p><b>Tracks.</b> <span id="sources"></span></p>
+        <p><b>Checks against known numbers.</b> With the default car the simulator gives about 4.1 s for the 75 m acceleration and 5.0 s on skidpad. Competitive electric Formula Student cars run roughly 3.3 to 4.5 s and 4.7 to 5.3 s. A wingless car with constant grip matches the textbook skidpad formula to within 0.06 s. Against a logged FS UK endurance stint the speed trace has the right shape (correlation 0.96), but the default car with a perfect driver is about 19% quicker than the logged laps, so absolute lap times should not be trusted until the car figures are replaced with a real car's.</p>
+      </div>
+    </details>
+    <footer class="foot">Physics in Python, running in your browser through Pyodide. GP racing lines: TUM racetrack database (LGPL-3.0).</footer>
+  </section>
+</main>
+<script type="module" src="web/app.js"></script>
+</body>
+</html>
