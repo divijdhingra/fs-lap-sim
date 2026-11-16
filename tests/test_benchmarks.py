@@ -70,6 +70,22 @@ class Driver(unittest.TestCase):
         b = run("skidpad", car, {"driver": 81})["time"]
         self.assertAlmostEqual(b / a, 1 / 0.9, delta=0.01)
 
+    def test_gentle_braking_lowers_peak_braking_only(self):
+        a, b = run("fsuk_autocross"), run("fsuk_autocross", cond={"driver_brake": 50})
+        self.assertGreater(b["time"], a["time"])
+        self.assertLess(-b["ax_min"], 0.65 * -a["ax_min"])
+        self.assertAlmostEqual(b["ay_max"], a["ay_max"], delta=0.03)
+
+    def test_traction_share_slows_the_launch(self):
+        self.assertGreater(run("accel", cond={"driver_power": 70})["time"], run("accel")["time"] + 0.3)
+
+    def test_lift_and_coast_trades_time_for_energy(self):
+        a, b = run("fsuk_autocross"), run("fsuk_autocross", cond={"lift_coast": 10})
+        self.assertGreater(b["time"], a["time"])
+        self.assertLess(b["time"], a["time"] + 4)
+        self.assertLess(b["energy_kwh"], 0.9 * a["energy_kwh"])
+        self.assertGreater(b["v_min"], 0.9 * a["v_min"])          # never rolls to a crawl
+
     def test_straight_line_power_not_reduced(self):
         # Top speed on a long straight is set by the motor, not by the driver setting.
         self.assertAlmostEqual(run("silverstone_gp", cond={"driver": 85})["v_max"], run("silverstone_gp")["v_max"], delta=0.1)

@@ -59,7 +59,45 @@ def _passes(veh, ks, vlim, ds, v_start, v_end=None, offs=None):
         vp = math.sqrt(vi * vi - two_ds * a)
         if vp < v[i - 1]:
             v[i - 1] = vp
+    if veh.lift_m > 0:
+        _lift_and_coast(veh, ks, v, ds, offs)
     return v
+
+
+def _lift_and_coast(veh, ks, v, ds, offs):
+    """Driver lifts off the throttle a set distance before each braking point
+    and lets the car roll (no drive, no brakes) until the braking line is met.
+    Saves energy in endurance at a small cost in lap time. The car is never
+    allowed to roll down below the speed the corner ahead will be taken at.
+
+    v holds the fastest possible speeds. Mark the stretch from the lift point
+    to the end of each braking zone as "no drive", then drive forward again
+    with the old speeds as the ceiling."""
+    n = len(v)
+    w = max(1, int(round(veh.lift_m / ds)))
+    m, two_ds = veh.m, 2 * ds
+    coast = [None] * n          # for no-drive points: the speed at the end of that braking zone
+    b = 1
+    while b < n - 1:
+        if v[b] >= v[b - 1] and v[b + 1] < v[b] and \
+                (v[b] * v[b] - v[b + 1] * v[b + 1]) / two_ds > 2 * veh.resist(v[b]) / m + 1.0:   # real braking, not just drag
+            e = b
+            while e < n - 1 and v[e + 1] < v[e]:
+                e += 1
+            for i in range(max(0, b - w), e):
+                coast[i] = v[e]
+            b = e
+        b += 1
+    for i in range(n - 1):
+        vi = v[i]
+        if coast[i] is not None and vi > coast[i]:
+            # rolling, but never slower than the corner ahead will be taken
+            vn = max(coast[i], math.sqrt(max(0.0, vi * vi - two_ds * veh.resist(vi) / m)))
+        else:
+            a, _ = veh.ax_max(max(vi, 0.3), ks[i], offs[i])
+            vn = math.sqrt(max(0.0, vi * vi + two_ds * a))
+        if vn < v[i + 1]:
+            v[i + 1] = vn
 
 
 def _solve_lap(veh, track, vlim, standing, offs=None):

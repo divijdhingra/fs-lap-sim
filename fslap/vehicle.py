@@ -81,7 +81,13 @@ class Vehicle:
         self.bump_r = c["bump_sens"] * self.sig_r
         self.p_cap = cond["power_cap"] * 1000.0
         self.track_grip = cond["track_grip"] / 100.0
-        self.skill = min(1.0, max(0.3, cond.get("driver", 100) / 100.0))
+        # Driver: share of the tyres' grip used for cornering, and separately for
+        # braking and for putting power down (see the notes in solver.py).
+        clip = lambda x: min(1.0, max(0.3, x / 100.0))
+        self.skill = clip(cond.get("driver", 100))
+        self.k_brake = clip(cond.get("driver_brake", 100)) / self.skill
+        self.k_power = clip(cond.get("driver_power", 100)) / self.skill
+        self.lift_m = max(0.0, cond.get("lift_coast", 0.0))     # lifts off this far before braking
         self.rr = self.crr * self.m * G
         self.air_temp = cond["air_temp"]
         self.t_opt = c.get("tyre_temp_opt", 70.0)
@@ -223,7 +229,7 @@ class Vehicle:
 
     def _traction(self, xf, xr):
         d = self.drive
-        return xr if d == "RWD" else (xf + xr if d == "AWD" else xf)
+        return self.k_power * (xr if d == "RWD" else (xf + xr if d == "AWD" else xf))
 
     def ax_max(self, v, kappa, d=None):
         """Best forward acceleration (m/s²) at speed v on a curve of curvature kappa.
@@ -271,7 +277,7 @@ class Vehicle:
         b = self.bias
         for _ in range(12):
             xf, xr, _ok, drag = self._fx_left(v, ax, ay, d)
-            fb = min(xf / b, xr / (1 - b))
+            fb = self.k_brake * min(xf / b, xr / (1 - b))
             new = -(fb + res + drag) / self.m
             if abs(new - ax) < 0.04:
                 ax = new

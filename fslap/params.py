@@ -69,7 +69,10 @@ CAR_GROUPS = [
 ]
 
 COND_GROUP = ("Conditions", [
-    P("driver", "Driver accuracy", "%", 100, 50, 100, 1, "How much of the tyres' grip the driver actually uses when cornering, braking and putting power down. 100 = a perfect driver on the limit everywhere. A good student driver is typically around 85 to 95. On a straight the driver still uses full power."),
+    P("driver", "Driver: cornering grip used", "%", 100, 50, 100, 1, "How much of the tyres' grip the driver uses in corners. 100 = a perfect driver on the limit in every corner. A good student driver is typically around 85 to 95."),
+    P("driver_brake", "Driver: braking grip used", "%", 100, 30, 100, 1, "How hard the driver brakes, as a share of what the tyres could take. Most drivers are further from the limit under braking than in corners, because locking a wheel is easy and costly. A lower figure means earlier, gentler braking."),
+    P("driver_power", "Driver: traction used on corner exit", "%", 100, 30, 100, 1, "How much of the available traction the driver uses when putting power down. On a straight, where grip is not the limit, the driver still uses full power."),
+    P("lift_coast", "Lift and coast before braking", "m", 0, 0, 40, 1, "The driver lifts off the throttle this many metres before each braking point and lets the car roll. Costs a little lap time and saves energy, which is how teams make the battery last in endurance."),
     P("soc_start", "Battery charge at start", "%", 100, 5, 100, 1, "State of charge when the run starts. Lower charge means lower voltage, less power and a lower top speed."),
     P("power_cap", "Power limit", "kW", 80, 5, 80, 1, "Electrical power limit at the battery. The rules cap this at 80 kW. Teams turn it down in endurance to make the battery last."),
     P("tyre_wear", "Tyre wear at start", "%", 0, 0, 100, 1, "0 = new tyres, 100 = fully worn. Assumed to cut grip in a straight line down to 12% less at fully worn."),
@@ -85,13 +88,15 @@ PRESETS = [
     dict(id="typical", name="Typical FS electric car", car={}, cond={},
          note="A generic mid-field electric Formula Student car. Not any specific team's car."),
     dict(id="logged", name="Fitted to the logged FS UK stint",
-         car=dict(motor_torque=80, drive_eff=80, regen_kw=0, mu_x=1.2, mu_y=1.2),
-         cond=dict(power_cap=46, driver=82),
+         car=dict(motor_torque=80, drive_eff=74, regen_kw=0, mu_x=1.3, mu_y=1.3),
+         cond=dict(power_cap=46, driver=79, driver_brake=48, driver_power=79),
          note="Read from the log: 46 kW peak power, no regen, and a constant push of about 2000 N at full "
               "throttle (so the car was torque limited, not power limited). "
-              "Fitted: tyre grip 1.2 with a driver using 82% of it, which reproduces the best lap time. "
-              "Assumed: everything else, including mass (300 kg with driver) and 80% drivetrain "
-              "efficiency. The true mass would change the fitted grip and driver figures."),
+              "Fitted: tyre grip 1.3 with a driver using 79% of it in corners and on corner exit but only "
+              "48% under braking, which reproduces the best lap time and the logged braking of 0.75 g; "
+              "74% drivetrain efficiency, which reproduces the energy used per lap. "
+              "Assumed: everything else, including mass (300 kg with driver). The true mass would change "
+              "the fitted figures."),
 ]
 
 PARAM_GROUPS = dict(
