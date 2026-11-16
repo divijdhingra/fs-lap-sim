@@ -8,8 +8,11 @@ Defaults describe a *typical* mid-field electric Formula Student car; they are
 not any specific team's car.
 """
 
-def P(key, label, unit, default, lo, hi, step, help):
-    return dict(key=key, label=label, unit=unit, default=default, min=lo, max=hi, step=step, help=help)
+def P(key, label, unit, default, lo, hi, step, help, options=None):
+    d = dict(key=key, label=label, unit=unit, default=default, min=lo, max=hi, step=step, help=help)
+    if options:
+        d["options"] = options          # a pick-list instead of a number
+    return d
 
 CAR_GROUPS = [
     ("Mass and geometry", [
@@ -40,7 +43,9 @@ CAR_GROUPS = [
         P("aero_balance", "Aero balance (front)", "%", 45, 20, 70, 0.5, "Share of the downforce that pushes on the front axle."),
     ]),
     ("Motor and drivetrain", [
-        P("drive", "Driven wheels", "", "RWD", None, None, None, "RWD = rear wheels driven, AWD = all four (for example hub motors), FWD = front wheels."),
+        P("drive", "Driven wheels", "", "RWD", None, None, None, "RWD = rear wheels driven, AWD = all four (for example hub motors), FWD = front wheels.", ["RWD", "AWD", "FWD"]),
+        P("diff", "Left to right torque split", "", "Limited slip", None, None, None, "How drive torque is shared between the left and right wheels of a driven axle. Open = an open differential: both wheels get the same torque, so the lightly loaded inside wheel sets the limit and spins first. Limited slip = each wheel gets what its tyre can use. Torque vectoring = one motor per wheel, which also sends more torque to the outside wheel to help turn the car.", ["Limited slip", "Open", "Torque vectoring"]),
+        P("tv_moment", "Torque vectoring turning moment", "N·m", 400, 0, 2000, 10, "The largest turning moment (yaw moment) the controller applies by driving the outside wheel harder than the inside one. It moves cornering work from the axle that is nearer its grip limit to the other. Only used when the torque split is set to torque vectoring."),
         P("motor_torque", "Peak motor torque (total)", "N·m", 230, 20, 600, 1, "Total peak torque at the motor shaft(s). For several motors, add them up."),
         P("motor_power", "Peak motor power (total)", "kW", 100, 10, 200, 1, "Total mechanical power the motor(s) can deliver. The 80 kW rules limit usually bites first."),
         P("motor_rpm", "Motor top speed at nominal voltage", "rpm", 6000, 2000, 22000, 50, "Highest motor speed when the battery is at its nominal voltage. It scales with battery voltage, so top speed falls as the battery empties."),
@@ -81,6 +86,7 @@ COND_GROUP = ("Conditions", [
     P("driver", "Driver: cornering grip used", "%", 100, 50, 100, 1, "How much of the tyres' grip the driver uses in corners. 100 = a perfect driver on the limit in every corner. A good student driver is typically around 85 to 95."),
     P("driver_brake", "Driver: braking grip used", "%", 100, 30, 100, 1, "How hard the driver brakes, as a share of what the tyres could take. Most drivers are further from the limit under braking than in corners, because locking a wheel is easy and costly. A lower figure means earlier, gentler braking."),
     P("driver_power", "Driver: traction used on corner exit", "%", 100, 30, 100, 1, "How much of the available traction the driver uses when putting power down. On a straight, where grip is not the limit, the driver still uses full power."),
+    P("traction_control", "Traction control", "", "Off", None, None, None, "On = the controller trims motor torque to hold the driven tyres at their best slip, so 97% of the available traction is used however cautious the driver is on the throttle. It makes no difference to a perfect driver.", ["Off", "On"]),
     P("lift_coast", "Lift and coast before braking", "m", 0, 0, 40, 1, "The driver lifts off the throttle this many metres before each braking point and lets the car roll. Costs a little lap time and saves energy, which is how teams make the battery last in endurance."),
     P("soc_start", "Battery charge at start", "%", 100, 5, 100, 1, "State of charge when the run starts. Lower charge means lower voltage, less power and a lower top speed."),
     P("power_cap", "Power limit", "kW", 80, 5, 80, 1, "Electrical power limit at the battery. The rules cap this at 80 kW. Teams turn it down in endurance to make the battery last."),

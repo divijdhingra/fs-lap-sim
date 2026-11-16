@@ -26,6 +26,9 @@ def cell_ocv(soc):
     return _OCV[-1][1]
 
 
+TC_SHARE = 0.97          # share of available traction used with traction control on (assumption)
+
+
 class Vehicle:
     def __init__(self, car, cond):
         c = car
@@ -45,6 +48,11 @@ class Vehicle:
         self.q_cd = 0.5 * self.rho * c["cd_a"]
         self.ab = c["aero_balance"] / 100.0
         self.drive = c["drive"]
+        diff = c.get("diff", "Limited slip")
+        self.open_diff = diff == "Open"
+        # torque vectoring: largest sideways force it can move between axles (N) = turning moment / wheelbase
+        self.tv_force = (c.get("tv_moment", 0.0) / c["wheelbase"]) if diff == "Torque vectoring" else 0.0
+        self._of = self._or = 1.0           # open differential: share of an axle's traction that is usable
         self.t_peak = c["motor_torque"]
         self.p_motor = c["motor_power"] * 1000.0
         self.rpm_nom = c["motor_rpm"]
@@ -108,7 +116,10 @@ class Vehicle:
         clip = lambda x: min(1.0, max(0.3, x / 100.0))
         self.skill = clip(cond.get("driver", 100))
         self.k_brake = clip(cond.get("driver_brake", 100)) / self.skill
-        self.k_power = clip(cond.get("driver_power", 100)) / self.skill
+        power = clip(cond.get("driver_power", 100))
+        if cond.get("traction_control", "Off") == "On":
+            power = max(power, TC_SHARE)        # the controller holds the tyres near their best slip
+        self.k_power = power / self.skill
         self.lift_m = max(0.0, cond.get("lift_coast", 0.0))     # lifts off this far before braking
         self.rr = self.crr * self.m * G
         self.air_temp = cond["air_temp"]
@@ -263,6 +274,7 @@ class Vehicle:
         fl *= e1; fr *= e2; rl *= e3; rr *= e4
         if ay >= 0: efy = fl * yi + fr * yo; efx = fl * xi + fr * xo
         else: efy = fl * yo + fr * yi; efx = fl * xo + fr * xi
+        xo_f, xi_f = xo, xi
         cam = self.cam_r
         go = cam + pr; gi = pr - cam
         yo = 1 - ky * (go - opt) * (go - opt); yi = 1 - ky * (gi - opt) * (gi - opt)
@@ -273,10 +285,21 @@ class Vehicle:
         if xi < flo: xi = flo
         if ay >= 0: ery = rl * yi + rr * yo; erx = rl * xi + rr * xo
         else: ery = rl * yo + rr * yi; erx = rl * xo + rr * xi
+        if self.open_diff:
+            # an open differential gives both wheels the same torque, so the axle can
+            # only put down twice what the weaker tyre (the inside one) can take
+            if ay >= 0: a1 = fl * xi_f; a2 = fr * xo_f; a3 = rl * xi; a4 = rr * xo
+            else: a1 = fl * xo_f; a2 = fr * xi_f; a3 = rl * xo; a4 = rr * xi
+            self._of = 2 * (a1 if a1 < a2 else a2) / efx if efx > 0 else 1.0
+            self._or = 2 * (a3 if a3 < a4 else a4) / erx if erx > 0 else 1.0
         gdf, gdr = self.gdf, self.gdr
         may = m * abs(ay)
-        uf = may * self.wf / (self.mu_y0 * efy * gdf) if efy > 0 else 9.0
-        ur = may * (1 - self.wf) / (self.mu_y0 * ery * gdr) if ery > 0 else 9.0
+        capf, capr = self.mu_y0 * efy * gdf, self.mu_y0 * ery * gdr
+        fyf, fyr = may * self.wf, may * (1 - self.wf)
+        if self.tv_force > 0.0 and may > 0.0:
+            fyf, fyr = self._tv_split(fyf, fyr, capf, capr)
+        uf = fyf / capf if capf > 0 else 9.0
+        ur = fyr / capr if capr > 0 else 9.0
         ok = uf <= 1.0 and ur <= 1.0
         xf = self.mu_x0 * efx * gdf * math.sqrt(1 - uf * uf) if uf < 1.0 else 0.0
         xr = self.mu_x0 * erx * gdr * math.sqrt(1 - ur * ur) if ur < 1.0 else 0.0
@@ -285,7 +308,7 @@ class Vehicle:
         if may > 0.0:
             sk, tab = self.skill * 64, self.lat.sin_slip
             i = int(uf * sk); j = int(ur * sk)
-            drag = may * (self.wf * tab[i if i < 64 else 64] + (1 - self.wf) * tab[j if j < 64 else 64])
+            drag = fyf * tab[i if i < 64 else 64] + fyr * tab[j if j < 64 else 64]
         else:
             drag = 0.0
         return xf, xr, ok, drag
@@ -293,8 +316,22 @@ class Vehicle:
     def resist(self, v):
         return self.q_cd * v * v + self.rr
 
+    def _tv_split(self, fyf, fyr, capf, capr):
+        """Torque vectoring: driving the outside wheel harder than the inside one
+        turns the car, which takes cornering work off the axle nearer its limit.
+        Returns the cornering force each axle is left to supply."""
+        tot = capf + capr
+        if tot <= 0:
+            return fyf, fyr
+        s = fyf - (fyf + fyr) * capf / tot          # force to move off the front to level the two axles
+        lim = self.tv_force
+        s = lim if s > lim else (-lim if s < -lim else s)
+        return fyf - s, fyr + s
+
     def _traction(self, xf, xr):
         d = self.drive
+        if self.open_diff:
+            xf *= self._of; xr *= self._or
         return self.k_power * (xr if d == "RWD" else (xf + xr if d == "AWD" else xf))
 
     def ax_max(self, v, kappa, d=None):
@@ -391,6 +428,11 @@ class Vehicle:
         fz = self.wheel_loads(v, ax, ay, d)
         cyf, cyr, cxf, cxr = self._axle_caps(v, ax, ay, d)
         fyf, fyr = m * ay * self.wf, m * ay * (1 - self.wf)
+        tv_m = 0.0
+        if self.tv_force > 0.0 and ay != 0.0:
+            a, b = self._tv_split(abs(fyf), abs(fyr), cyf * self.skill, cyr * self.skill)
+            tv_m = (abs(fyf) - a) * self.L * (1.0 if ay >= 0 else -1.0)     # turning moment applied, N·m
+            fyf, fyr = math.copysign(a, ay), math.copysign(b, ay)
         # slip angle each axle needs for its cornering force (Magic Formula, see tyre.py)
         sa_f = self.lat.slip_for(abs(fyf) / cyf) if cyf > 0 else 0.0
         sa_r = self.lat.slip_for(abs(fyr) / cyr) if cyr > 0 else 0.0
@@ -430,7 +472,7 @@ class Vehicle:
         sl_r = (abs(fyr) * math.sin(sa_r) + abs(fxr) * sr_r) * v
         rr_f, rr_r = self.crr * (fz[0] + fz[1]) * v, self.crr * (fz[2] + fz[3]) * v
         return dict(fz=fz, uf=uf, ur=ur, p=p_term, torque=torque,
-                    roll=ay * self.roll_per_ay, cam_fo=self.cam_f + abs(ay) * self.cam_roll, cam_ro=self.cam_r + abs(ay) * self.cam_roll,
+                    roll=ay * self.roll_per_ay, tv=tv_m, cam_fo=self.cam_f + abs(ay) * self.cam_roll, cam_ro=self.cam_r + abs(ay) * self.cam_roll,
                     slip_f=sgn * math.degrees(sa_f), slip_r=sgn * math.degrees(sa_r),
                     steer=math.degrees(self.L * kappa) + sgn * math.degrees(sa_f - sa_r),
                     slip_ratio=100 * max(sr_f, sr_r) * (1 if f_net >= 0 else -1),

@@ -131,7 +131,7 @@ def _integrate(veh, track, v, offs=None):
     t = 0.0
     q_ah = 0.0; e_out = 0.0; e_regen = 0.0
     ch = dict(t=[], v=[], ax=[], ay=[], p=[], torque=[], uf=[], ur=[], roll=[],
-              fz_fl=[], fz_fr=[], fz_rl=[], fz_rr=[], slip_f=[], slip_r=[], steer=[], slip_ratio=[], temp_f=[], temp_r=[], cam_fo=[], cam_ro=[], batt_temp=[], motor_temp=[])
+              fz_fl=[], fz_fr=[], fz_rl=[], fz_rr=[], slip_f=[], slip_r=[], steer=[], slip_ratio=[], temp_f=[], temp_r=[], cam_fo=[], cam_ro=[], batt_temp=[], motor_temp=[], tv=[])
     tf, tr, air = veh.temp_f, veh.temp_r, veh.air_temp      # tyre temperatures at the start of this lap
     tf_sum = tr_sum = 0.0; sl_f = sl_r = 0.0
     tb, tm = veh.batt_temp, veh.motor_temp                  # pack and motor temperatures at the start of this lap
@@ -152,7 +152,7 @@ def _integrate(veh, track, v, offs=None):
         ch["uf"].append(st["uf"]); ch["ur"].append(st["ur"]); ch["roll"].append(st["roll"])
         ch["slip_f"].append(st["slip_f"]); ch["slip_r"].append(st["slip_r"])
         ch["steer"].append(st["steer"]); ch["slip_ratio"].append(st["slip_ratio"])
-        ch["cam_fo"].append(st["cam_fo"]); ch["cam_ro"].append(st["cam_ro"])
+        ch["cam_fo"].append(st["cam_fo"]); ch["cam_ro"].append(st["cam_ro"]); ch["tv"].append(st["tv"])
         fz = st["fz"]
         ch["fz_fl"].append(fz[0]); ch["fz_fr"].append(fz[1]); ch["fz_rl"].append(fz[2]); ch["fz_rr"].append(fz[3])
         # tyre temperature: heated by sliding and rolling losses, cooled by the air
@@ -231,7 +231,7 @@ def _time_at(ch, ds, s):
 
 
 def _round_ch(ch):
-    dec = dict(t=3, v=2, ax=3, ay=3, p=2, torque=1, uf=3, ur=3, roll=2, slip_f=2, slip_r=2, steer=2, slip_ratio=2, temp_f=1, temp_r=1, cam_fo=2, cam_ro=2, batt_temp=2, motor_temp=2)
+    dec = dict(t=3, v=2, ax=3, ay=3, p=2, torque=1, uf=3, ur=3, roll=2, slip_f=2, slip_r=2, steer=2, slip_ratio=2, temp_f=1, temp_r=1, cam_fo=2, cam_ro=2, batt_temp=2, motor_temp=2, tv=0)
     return {k: [round(x, dec.get(k, 0)) for x in a] for k, a in ch.items()}
 
 

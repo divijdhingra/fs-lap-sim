@@ -14,8 +14,8 @@ An interactive lap time simulator for **electric Formula Student cars**. Enter t
 ## What it does
 
 - **Events:** 75 m acceleration, skidpad, an FS UK sprint lap, the 22 km FS UK endurance (with battery energy tracked lap by lap), and flying laps of the Silverstone and Hockenheim Grand Prix circuits.
-- **Car inputs:** mass, wheelbase, track widths, centre of gravity, tyre grip, load sensitivity and slip at peak grip (Pacejka Magic Formula curves), downforce and drag, motor torque/power/speed, gear ratio, driven wheels, battery capacity/voltage/resistance/current limit, regen, brake bias, spring rates, anti-roll bars and damper rates. The defaults are a typical mid-field electric FS car, not a specific team's car.
-- **Conditions:** driver model (cornering, braking and traction grip used, lift and coast), track roughness, battery charge, power limit, tyre temperature and wear, battery and motor temperature, track grip (dry to wet) and air temperature.
+- **Car inputs:** mass, wheelbase, track widths, centre of gravity, tyre grip, load sensitivity and slip at peak grip (Pacejka Magic Formula curves), downforce and drag, motor torque/power/speed, gear ratio, driven wheels, differential or torque vectoring, cooling, battery capacity/voltage/resistance/current limit, regen, brake bias, spring rates, anti-roll bars and damper rates. The defaults are a typical mid-field electric FS car, not a specific team's car.
+- **Conditions:** driver model (cornering, braking and traction grip used, lift and coast, traction control), track roughness, battery charge, power limit, tyre temperature and wear, battery and motor temperature, track grip (dry to wet) and air temperature.
 - **Suspension and dampers:** a time-based replay of body roll, pitch and heave, road bumps, damper speed histograms, and their effect on lap time.
 - **Setup optimiser:** searches gear ratio, spring rates and damper rates for the selected event and loads the result into Setup B.
 - **Points calculator:** runs the four dynamic events and scores them with the Formula Student formulas.

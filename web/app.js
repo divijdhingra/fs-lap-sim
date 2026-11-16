@@ -177,6 +177,7 @@ const TYRE_CHARTS = [
   { key: "slip_f", title: "Front tyre slip angle", unit: "deg", get: (c) => c.slip_f, d: 1, zero: true },
   { key: "slip_r", title: "Rear tyre slip angle", unit: "deg", get: (c) => c.slip_r, d: 1, zero: true },
   { key: "slip_ratio", title: "Wheel slip on the harder-worked axle (spinning +, braking −)", unit: "%", get: (c) => c.slip_ratio, d: 1, zero: true },
+  { key: "tv", title: "Torque vectoring turning moment (turning left +, right −; zero unless torque vectoring is selected)", unit: "N·m", get: (c) => c.tv, d: 0, zero: true },
   { key: "temp_f", title: "Front tyre temperature", unit: "°C", get: (c) => c.temp_f, d: 1 },
   { key: "temp_r", title: "Rear tyre temperature", unit: "°C", get: (c) => c.temp_r, d: 1 },
 ];
@@ -629,7 +630,7 @@ function buildForm() {
   const g = state.schema.groups, form = $("form"), groups = [{ ...g.cond, scope: "cond" }].concat(g.car.map((x) => ({ ...x, scope: "car" })));
   form.innerHTML = groups.map((grp, gi) => `<details ${gi < 2 ? "open" : ""}><summary>${grp.name}</summary>` + grp.params.map((p) =>
     `<div class="row"><label for="in_${p.key}" title="Click for an explanation">${p.label}</label>` +
-    (p.key === "drive" ? `<select id="in_${p.key}" data-scope="${grp.scope}" data-key="${p.key}"><option>RWD</option><option>AWD</option><option>FWD</option></select>`
+    (p.options ? `<select id="in_${p.key}" data-scope="${grp.scope}" data-key="${p.key}">${p.options.map((o) => `<option>${o}</option>`).join("")}</select>`
       : `<input id="in_${p.key}" type="number" data-scope="${grp.scope}" data-key="${p.key}" min="${p.min}" max="${p.max}" step="${p.step}"><span class="unit">${p.unit}</span>`) +
     `<div class="help">${p.help}</div></div>`).join("") + `</details>`).join("");
   form.addEventListener("click", (e) => { if (e.target.tagName === "LABEL") { e.preventDefault(); e.target.parentElement.classList.toggle("show"); } });

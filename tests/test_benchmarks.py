@@ -87,9 +87,43 @@ class Driver(unittest.TestCase):
         self.assertLess(b["energy_kwh"], 0.9 * a["energy_kwh"])
         self.assertGreater(b["v_min"], 0.9 * a["v_min"])          # never rolls to a crawl
 
+    def test_traction_control_recovers_a_cautious_throttle(self):
+        base = run("fsuk_autocross")["time"]
+        shy = run("fsuk_autocross", cond={"driver_power": 80})["time"]
+        tc = run("fsuk_autocross", cond={"driver_power": 80, "traction_control": "On"})["time"]
+        self.assertTrue(base < tc < shy)
+        self.assertLess(tc - base, 0.35 * (shy - base))
+        # it makes no difference to a perfect driver
+        self.assertAlmostEqual(run("fsuk_autocross", cond={"traction_control": "On"})["time"], base, delta=0.01)
+
     def test_straight_line_power_not_reduced(self):
         # Top speed on a long straight is set by the motor, not by the driver setting.
         self.assertAlmostEqual(run("silverstone_gp", cond={"driver": 85})["v_max"], run("silverstone_gp")["v_max"], delta=0.1)
+
+
+class Drivetrain(unittest.TestCase):
+    def test_open_differential_is_slower_than_limited_slip(self):
+        self.assertGreater(run("fsuk_autocross", {"diff": "Open"})["time"], run("fsuk_autocross")["time"] + 0.5)
+        # in a straight line both wheels carry the same load, so it makes no difference
+        self.assertAlmostEqual(run("accel", {"diff": "Open"})["time"], run("accel")["time"], delta=0.01)
+
+    def test_torque_vectoring_helps_and_respects_its_limit(self):
+        base = run("fsuk_autocross")
+        tv = run("fsuk_autocross", {"diff": "Torque vectoring", "tv_moment": 400})
+        self.assertLess(tv["time"], base["time"] - 0.1)
+        self.assertLessEqual(max(abs(x) for x in tv["ch"]["tv"]), 400.5)
+        self.assertEqual(max(abs(x) for x in base["ch"]["tv"]), 0)
+        # with no moment allowed it is the same as an ideal limited slip differential
+        self.assertAlmostEqual(run("fsuk_autocross", {"diff": "Torque vectoring", "tv_moment": 0})["time"], base["time"], delta=0.01)
+
+    def test_torque_vectoring_levels_the_axles(self):
+        # At a corner limit the moment moves cornering work from the busier axle to the other.
+        car = dict(default_car(), diff="Torque vectoring", tv_moment=2000)
+        veh = Vehicle(car, default_conditions())
+        st = veh.point_state(veh.corner_speed(1 / 15.0) * 0.98, 1 / 15.0, 0.0)
+        ref = Vehicle(default_car(), default_conditions())
+        s0 = ref.point_state(ref.corner_speed(1 / 15.0) * 0.98, 1 / 15.0, 0.0)
+        self.assertLess(abs(st["uf"] - st["ur"]), abs(s0["uf"] - s0["ur"]))
 
 
 class Packaging(unittest.TestCase):
