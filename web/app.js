@@ -43,6 +43,7 @@ const CHANNELS = {
   ay: { label: "Cornering", unit: "g", get: (c, i) => Math.abs(c.ay[i]), div: false, zero: true, d: 2 },
   ax: { label: "Braking (−) / acceleration (+)", unit: "g", get: (c, i) => c.ax[i], div: true, d: 2 },
   p: { label: "Battery power, regen (−) / drive (+)", unit: "kW", get: (c, i) => c.p[i], div: true, d: 0 },
+  slip: { label: "Front tyre slip angle", unit: "deg", get: (c, i) => Math.abs(c.slip_f[i]), div: false, zero: true, d: 1 },
   grip: { label: "Share of tyre grip in use", unit: "%", get: (c, i) => 100 * Math.min(1, Math.max(c.uf[i], c.ur[i])), div: false, zero: true, d: 0 },
 };
 function channelScale(res, key) {
@@ -171,6 +172,12 @@ const CHARTS = [
   { key: "dt", title: "Time gained or lost by B relative to A (above zero = B is behind)", unit: "s", cmp: true, d: 2, zero: true,
     get: (c, all) => all.A.ch.t.map((t, i) => (all.B.ch.t[i] ?? NaN) - t), single: true },
 ];
+const TYRE_CHARTS = [
+  { key: "steer", title: "Steering angle at the front wheels (left +, right −)", unit: "deg", get: (c) => c.steer, d: 1, zero: true },
+  { key: "slip_f", title: "Front tyre slip angle", unit: "deg", get: (c) => c.slip_f, d: 1, zero: true },
+  { key: "slip_r", title: "Rear tyre slip angle", unit: "deg", get: (c) => c.slip_r, d: 1, zero: true },
+  { key: "slip_ratio", title: "Wheel slip on the harder-worked axle (spinning +, braking −)", unit: "%", get: (c) => c.slip_ratio, d: 1, zero: true },
+];
 const RIDE_CHARTS = [
   { key: "roll_dyn", title: "Body roll (leaning right +, left −)", unit: "deg", get: (c) => c.roll_dyn, d: 2, zero: true },
   { key: "pitch", title: "Pitch (nose down under braking +, nose up under power −)", unit: "deg", get: (c) => c.pitch, d: 2, zero: true },
@@ -268,6 +275,7 @@ function drawCharts() {
   const both = state.compare && all.B;
   drawSet($("charts"), CHARTS);
   drawSet($("rideCharts"), RIDE_CHARTS);
+  drawSet($("tyreCharts"), TYRE_CHARTS);
   $("chartLegend").innerHTML = both ? `<span><i class="sw a"></i>Setup A</span><span><i class="sw b"></i>Setup B</span>` : "";
 
   // endurance lap-by-lap
@@ -382,6 +390,8 @@ function drawCorner() {
     ["Peak cornering", "g", (c) => c.ay_peak, 2], ["Peak braking on approach", "g", (c) => c.brake_peak, 2], ["Peak acceleration on exit", "g", (c) => c.accel_exit, 2],
     ["Time in corner", "s", (c) => c.time, 2],
     ["Front tyre grip used at slowest point", "%", (c) => 100 * Math.min(c.uf, 1), 0], ["Rear tyre grip used at slowest point", "%", (c) => 100 * Math.min(c.ur, 1), 0],
+    ["Front tyre slip angle at slowest point", "deg", (c) => c.slip_f, 1], ["Rear tyre slip angle at slowest point", "deg", (c) => c.slip_r, 1],
+    ["Steering angle at slowest point", "deg", (c) => c.steer, 1],
     ["Body roll", "deg", (c) => Math.abs(c.roll), 2], ["Battery power at exit", "kW", (c) => c.p_exit, 1], ["Motor torque at exit", "N·m", (c) => c.torque_exit, 0],
   ];
   let html = `<p class="sub">Starts ${fmt(a.s_start, 0)} m into the lap, slowest point at ${fmt(a.s_apex, 0)} m. Axle nearest its grip limit: <b>${lim(a)}</b>${b ? `, B: <b>${lim(b)}</b>` : ""}.</p>`;

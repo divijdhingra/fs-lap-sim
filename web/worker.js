@@ -1,7 +1,7 @@
 // Runs the Python physics engine off the main thread so the page stays responsive.
 import { loadPyodide } from "../vendor/pyodide/pyodide.mjs";
 
-const FILES = ["__init__.py", "params.py", "bumps.py", "vehicle.py", "ride.py", "solver.py", "api.py"];
+const FILES = ["__init__.py", "params.py", "tyre.py", "bumps.py", "vehicle.py", "ride.py", "solver.py", "api.py"];
 let api = null;
 
 async function init() {

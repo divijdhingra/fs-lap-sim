@@ -27,7 +27,7 @@ class Benchmarks(unittest.TestCase):
 
     def test_skidpad_matches_hand_calculation(self):
         # No wings, no load sensitivity: speed = sqrt(mu * g * R), a textbook result.
-        r = run("skidpad", {"cl_a": 0, "load_sens": 0, "mu_y": 1.4, "cd_a": 0.01, "rolling_res": 0.001})
+        r = run("skidpad", {"cl_a": 0, "load_sens": 0, "mu_y": 1.4, "cd_a": 0.01, "rolling_res": 0.001, "peak_slip_angle": 3}, {"roughness": 0})
         expected = 2 * 3.14159265 * 9.125 / (1.4 * 9.81 * 9.125) ** 0.5
         self.assertAlmostEqual(r["time"], expected, delta=0.06)
 
@@ -65,7 +65,7 @@ class Driver(unittest.TestCase):
     def test_skidpad_scales_as_theory_says(self):
         # Cornering speed goes with the square root of grip, so a driver using
         # 81 % of the grip should take 1 / 0.9 times as long round a circle.
-        car = {"cl_a": 0, "load_sens": 0, "cd_a": 0.01, "rolling_res": 0.001}
+        car = {"cl_a": 0, "load_sens": 0, "cd_a": 0.01, "rolling_res": 0.001, "drive": "AWD"}
         a = run("skidpad", car)["time"]
         b = run("skidpad", car, {"driver": 81})["time"]
         self.assertAlmostEqual(b / a, 1 / 0.9, delta=0.01)
@@ -91,7 +91,7 @@ class FastPath(unittest.TestCase):
         for speed, ax, ay, d in ((12, 2, 9, None), (25, -14, -6, (30, -50, 80, -20)), (18, 0, 15, None), (30, -5, 0, (-400, 10, 5, 0))):
             cyf, cyr, cxf, cxr = v._axle_caps(speed, ax, ay, d)
             uf, ur = v.m * abs(ay) * v.wf / cyf, v.m * abs(ay) * (1 - v.wf) / cyr
-            xf, xr, ok = v._fx_left(speed, ax, ay, d)
+            xf, xr, ok, _drag = v._fx_left(speed, ax, ay, d)
             self.assertAlmostEqual(xf, cxf * math.sqrt(max(0, 1 - uf * uf)), delta=0.01)
             self.assertAlmostEqual(xr, cxr * math.sqrt(max(0, 1 - ur * ur)), delta=0.01)
             self.assertEqual(ok, uf <= 1 and ur <= 1)

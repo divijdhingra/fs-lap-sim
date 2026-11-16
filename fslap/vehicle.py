@@ -7,6 +7,7 @@ and dampers as the driver turns in or hits a bump) are not simulated.
 """
 import math
 from .bumps import tyre_load_rms
+from .tyre import MagicCurve, C_LAT, E_LAT, C_LONG, E_LONG
 
 G = 9.81
 WEAR_GRIP_LOSS = 0.12      # grip lost at 100 % tyre wear (assumption)
@@ -35,6 +36,8 @@ class Vehicle:
         self.wf = c["weight_front"] / 100.0
         self.mu_x0, self.mu_y0 = c["mu_x"], c["mu_y"]
         self.fz0, self.ls = c["tyre_ref_load"], c["load_sens"]
+        self.lat = MagicCurve(C_LAT, E_LAT, math.radians(c["peak_slip_angle"]))    # cornering force curve
+        self.lon = MagicCurve(C_LONG, E_LONG, c["peak_slip_ratio"] / 100.0)        # drive / brake force curve
         self.r = c["tyre_radius"]
         self.crr = c["rolling_res"]
         self.rho = 1.225 * 288.15 / (273.15 + cond["air_temp"])
@@ -192,7 +195,15 @@ class Vehicle:
         ok = uf <= 1.0 and ur <= 1.0
         xf = self.mu_x0 * ef * math.sqrt(1 - uf * uf) if uf < 1.0 else 0.0
         xr = self.mu_x0 * er * math.sqrt(1 - ur * ur) if ur < 1.0 else 0.0
-        return xf, xr, ok
+        # Cornering drag: a tyre running at a slip angle pushes back along the
+        # direction of travel with (sideways force) x sin(slip angle).
+        if may > 0.0:
+            sk, tab = self.skill * 64, self.lat.sin_slip
+            i = int(uf * sk); j = int(ur * sk)
+            drag = may * (self.wf * tab[i if i < 64 else 64] + (1 - self.wf) * tab[j if j < 64 else 64])
+        else:
+            drag = 0.0
+        return xf, xr, ok, drag
 
     def resist(self, v):
         return self.q_cd * v * v + self.rr
@@ -211,8 +222,8 @@ class Vehicle:
         m = self.m
         ax = 0.0
         for _ in range(12):            # load transfer depends on ax, so iterate to settle
-            xf, xr, ok = self._fx_left(v, ax, ay, d)
-            new = (min(self._traction(xf, xr), fm) - res) / m
+            xf, xr, ok, drag = self._fx_left(v, ax, ay, d)
+            new = (min(self._traction(xf, xr), fm) - res - drag) / m
             if abs(new - ax) < 0.04:
                 ax = new
                 break
@@ -221,9 +232,9 @@ class Vehicle:
             return ax, True
         # Accelerating shifts load off the front tyres. If that leaves the front
         # unable to hold the corner, ease off until it can.
-        coast = -res / m
-        xf, xr, ok0 = self._fx_left(v, 0.0, ay, d)
-        if ok0 and min(self._traction(xf, xr), fm) >= res:
+        xf, xr, ok0, drag = self._fx_left(v, 0.0, ay, d)
+        coast = -(res + drag) / m
+        if ok0 and min(self._traction(xf, xr), fm) >= res + drag:
             lo = 0.0                       # can at least hold this speed
         elif self._fx_left(v, coast, ay, d)[2]:
             lo = coast
@@ -232,8 +243,8 @@ class Vehicle:
         hi = ax
         for _ in range(8):
             mid = 0.5 * (lo + hi)
-            xf, xr, ok = self._fx_left(v, mid, ay, d)
-            if ok and (min(self._traction(xf, xr), fm) - res) / m >= mid:
+            xf, xr, ok, drag = self._fx_left(v, mid, ay, d)
+            if ok and (min(self._traction(xf, xr), fm) - res - drag) / m >= mid:
                 lo = mid
             else:
                 hi = mid
@@ -246,9 +257,9 @@ class Vehicle:
         ax = -10.0
         b = self.bias
         for _ in range(12):
-            xf, xr, _ok = self._fx_left(v, ax, ay, d)
+            xf, xr, _ok, drag = self._fx_left(v, ax, ay, d)
             fb = min(xf / b, xr / (1 - b))
-            new = -(fb + res) / self.m
+            new = -(fb + res + drag) / self.m
             if abs(new - ax) < 0.04:
                 ax = new
                 break
@@ -264,9 +275,9 @@ class Vehicle:
             return top
         def ok(v):
             # can hold the corner at constant speed: grip for the cornering force
-            # with enough left over on the driven tyres to cancel drag
-            xf, xr, feas = self._fx_left(v, 0.0, v * v * kappa, d)
-            return feas and min(self._traction(xf, xr), self.motor_force(v)) >= self.resist(v)
+            # with enough left over on the driven tyres to cancel air and cornering drag
+            xf, xr, feas, drag = self._fx_left(v, 0.0, v * v * kappa, d)
+            return feas and min(self._traction(xf, xr), self.motor_force(v)) >= self.resist(v) + drag
         lo, hi, n = 0.0, top, 22
         if guess is not None:
             a, b = 0.90 * guess, min(top, 1.08 * guess)
@@ -294,28 +305,47 @@ class Vehicle:
         ay = v * v * kappa
         fz = self.wheel_loads(v, ax, ay, d)
         cyf, cyr, cxf, cxr = self._axle_caps(v, ax, ay, d)
-        f_net = m * ax + self.resist(v)           # force the tyres must supply along the car
-        d = self.drive
+        fyf, fyr = m * ay * self.wf, m * ay * (1 - self.wf)
+        # slip angle each axle needs for its cornering force (Magic Formula, see tyre.py)
+        sa_f = self.lat.slip_for(abs(fyf) / cyf) if cyf > 0 else 0.0
+        sa_r = self.lat.slip_for(abs(fyr) / cyr) if cyr > 0 else 0.0
+        drag = abs(fyf) * math.sin(sa_f) + abs(fyr) * math.sin(sa_r)        # cornering drag
+        f_net = m * ax + self.resist(v) + drag    # force the tyres must supply along the car
+        dr = self.drive
         p_term = 0.0; torque = 0.0; regen = 0.0
         if f_net >= 0:
-            if d == "RWD": fxf, fxr = 0.0, f_net
-            elif d == "FWD": fxf, fxr = f_net, 0.0
+            if dr == "RWD": fxf, fxr = 0.0, f_net
+            elif dr == "FWD": fxf, fxr = f_net, 0.0
             else:
                 tot = cxf + cxr
                 fxf, fxr = f_net * cxf / tot, f_net * cxr / tot
-            p_term = min(f_net * v / self.eff, self.p_elec)   # clamp step-size rounding
+        else:
+            fxf, fxr = f_net * self.bias, f_net * (1 - self.bias)
+        # wheel slip each axle needs for its drive or brake force
+        sr_f = self.lon.slip_for(abs(fxf) / cxf) if cxf > 0 else 0.0
+        sr_r = self.lon.slip_for(abs(fxr) / cxr) if cxr > 0 else 0.0
+        if f_net >= 0:
+            # driven wheels turn a little faster than the road, which costs extra power
+            spin = (abs(fxf) * sr_f + abs(fxr) * sr_r) * v
+            p_term = min((f_net * v + spin) / self.eff, self.p_elec)   # clamp step-size rounding
             torque = f_net * self.r / self.gr
         else:
             fb = -f_net
-            fxf, fxr = -fb * self.bias, -fb * (1 - self.bias)
-            share = (1 - self.bias) if d == "RWD" else (self.bias if d == "FWD" else 1.0)
+            share = (1 - self.bias) if dr == "RWD" else (self.bias if dr == "FWD" else 1.0)
             if self.regen_w > 0 and v > 1.4 and self.soc < 0.98:      # rules: no regen below 5 km/h
                 f_reg = min(fb * share, self.f_torque)
                 regen = min(f_reg * v * self.eff, self.regen_w)
                 p_term = -regen
                 torque = -regen / self.eff / v * self.r / self.gr
-        fyf, fyr = m * ay * self.wf, m * ay * (1 - self.wf)
         uf = math.hypot(fyf / cyf, fxf / cxf) if cyf > 0 else 0.0
         ur = math.hypot(fyr / cyr, fxr / cxr) if cyr > 0 else 0.0
+        sgn = 1.0 if ay >= 0 else -1.0
+        # heat generated where each axle's tyres slide against the road (W)
+        rr_f, rr_r = self.crr * (fz[0] + fz[1]) * v, self.crr * (fz[2] + fz[3]) * v
         return dict(fz=fz, uf=uf, ur=ur, p=p_term, torque=torque,
-                    roll=m * ay * self.h / self.k_roll)
+                    roll=m * ay * self.h / self.k_roll,
+                    slip_f=sgn * math.degrees(sa_f), slip_r=sgn * math.degrees(sa_r),
+                    steer=math.degrees(self.L * kappa) + sgn * math.degrees(sa_f - sa_r),
+                    slip_ratio=100 * max(sr_f, sr_r) * (1 if f_net >= 0 else -1),
+                    heat_f=(abs(fyf) * math.sin(sa_f) + abs(fxf) * sr_f) * v + rr_f,
+                    heat_r=(abs(fyr) * math.sin(sa_r) + abs(fxr) * sr_r) * v + rr_r)

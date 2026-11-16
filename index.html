@@ -55,6 +55,7 @@
               <option value="ax">Braking / acceleration g</option>
               <option value="p">Battery power</option>
               <option value="grip">Tyre grip used</option>
+              <option value="slip">Front tyre slip angle</option>
             </select>
           </label>
         </div>
@@ -90,6 +91,12 @@
         <div><div class="ct"><span>Front dampers: share of the lap spent at each speed, mm/s</span></div><canvas id="histF"></canvas></div>
         <div><div class="ct"><span>Rear dampers: share of the lap spent at each speed, mm/s</span></div><canvas id="histR"></canvas></div>
       </div>
+    </div>
+
+    <div class="card" id="tyreCard">
+      <div class="card-head"><h2>Tyres</h2></div>
+      <p class="sub">A tyre only makes cornering force when it points slightly away from the direction it is travelling. That angle is the slip angle. Force builds with slip angle, peaks, then falls away, a shape described by the Pacejka "Magic Formula". The simulator uses that curve to work out the slip angle each axle needs at every point on the lap, and from that the steering angle. If the front tyres need more slip angle than the rear the car understeers and the driver adds steering; if the rear needs more, it oversteers. A tyre at a slip angle also drags the car back slightly (cornering drag), which now costs lap time and energy. The same curve shape gives the wheel slip needed to drive and brake.</p>
+      <div id="tyreCharts"></div>
     </div>
 
     <div class="card">
@@ -135,7 +142,7 @@
           <li>Road bumps use a quarter-car model for each corner (sprung mass, suspension spring and damper, unsprung mass, tyre spring) and the ISO 8608 road roughness scale, giving the typical tyre load flutter at each speed. Grip lost is an assumed share of that flutter (0.3 by default); this figure is a placeholder until tyre test data is available. Roughness is the same everywhere, each corner is treated on its own, and the tyre is assumed never to leave the ground.</li>
           <li>In that replay the dampers are linear (same rate in bump and rebound), the body replay itself runs on a smooth road with rigid tyres (bumps are added through the separate model above), kerbs are not modelled, driver inputs build with a 0.08 s lag, and roll and pitch inertia use assumed radii of gyration of 0.30 m and 0.60 m.</li>
           <li>Roll centres are taken at ground level and the whole car rolls as one mass.</li>
-          <li>Tyres use a peak grip coefficient with a straight-line load sensitivity, not a full tyre model. No tyre temperature. Camber and toe are not modelled.</li>
+          <li>Tyre force follows the Pacejka Magic Formula shape, with the peak set by the grip coefficient and a straight-line load sensitivity. The shape factors are fixed at typical values for a racing slick (cornering C 1.5, E −0.5; drive and brake C 1.6, E −0.3) and the stiffness comes from the slip at peak grip that you enter. These are placeholders until real tyre test data is fitted. The slip at peak does not change with load. The driver never goes past the peak. Combined cornering and braking uses the friction ellipse for the force limit and the separate curves for the slip. Left and right tyres on an axle share one slip angle. No tyre temperature. Camber and toe are not modelled.</li>
           <li>Tyre wear is a straight-line grip loss up to 12% at fully worn.</li>
           <li>All-wheel drive assumes torque is shared between axles in proportion to available grip.</li>
           <li>Regen assumes the brake balance stays at the set bias, with regen replacing part of the friction braking on the driven axle. No regen below 5 km/h, as in the rules.</li>
@@ -146,7 +153,7 @@
           <li>Endurance ignores the driver change stop, which is not timed.</li>
         </ul>
         <p><b>Tracks.</b> <span id="sources"></span></p>
-        <p><b>Checks against known numbers.</b> With the default car the simulator gives about 4.1 s for the 75 m acceleration and 5.0 s on skidpad. Competitive electric Formula Student cars run roughly 3.3 to 4.5 s and 4.7 to 5.3 s. A wingless car with constant grip matches the textbook skidpad formula to within 0.06 s. Fed back into lap time, body movement costs the default car about 0.4 s on the FS UK lap; halving or doubling the damper rates changes that by only a few hundredths, while a badly underdamped car loses about a further 0.1 s. The spring and damper replay settles at exactly the steady model's tyre loads and roll angle, and its overshoot after a sudden input matches the textbook formula for a spring, mass and damper to within 2%. The bump model matches a step-by-step simulation of the same two masses over a sine-wave road to within 3%, and gives the expected best damper setting at a damping ratio of about 0.4. Against a logged FS UK endurance stint (see the validation panel on the FS UK Endurance tab) the default car with a perfect driver is about 19% quicker than the logged laps. With the preset fitted to that log, the lap time is within 0.3% (this was the fitted quantity), and two things that were not fitted also agree: energy per lap within 1% and the speed trace to 4.3 km/h RMS with a correlation of 0.96. The fit has one known weakness: the simulated driver corners more gently and brakes harder than the real one, and the two errors cancel.</p>
+        <p><b>Checks against known numbers.</b> With the default car the simulator gives about 4.1 s for the 75 m acceleration and 5.1 s on skidpad. Competitive electric Formula Student cars run roughly 3.3 to 4.5 s and 4.7 to 5.3 s. A wingless car with constant grip matches the textbook skidpad formula to within 0.06 s. Fed back into lap time, body movement costs the default car about 0.4 s on the FS UK lap; halving or doubling the damper rates changes that by only a few hundredths, while a badly underdamped car loses about a further 0.1 s. The spring and damper replay settles at exactly the steady model's tyre loads and roll angle, and its overshoot after a sudden input matches the textbook formula for a spring, mass and damper to within 2%. The bump model matches a step-by-step simulation of the same two masses over a sine-wave road to within 3%, and gives the expected best damper setting at a damping ratio of about 0.4. Against a logged FS UK endurance stint (see the validation panel on the FS UK Endurance tab) the default car with a perfect driver is about 19% quicker than the logged laps. With the preset fitted to that log, the lap time is within 0.3% (this was the fitted quantity), and two things that were not fitted also agree: energy per lap within 2% and the speed trace to 4.6 km/h RMS with a correlation of 0.95. The fit has one known weakness: the simulated driver corners more gently and brakes harder than the real one, and the two errors cancel.</p>
       </div>
     </details>
     <footer class="foot">Physics in Python, running in your browser through Pyodide. GP racing lines: TUM racetrack database (LGPL-3.0).</footer>

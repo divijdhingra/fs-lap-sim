@@ -14,13 +14,13 @@ An interactive lap time simulator for **electric Formula Student cars**. Enter t
 ## What it does
 
 - **Events:** 75 m acceleration, skidpad, an FS UK sprint lap, the 22 km FS UK endurance (with battery energy tracked lap by lap), and flying laps of the Silverstone and Hockenheim Grand Prix circuits.
-- **Car inputs:** mass, wheelbase, track widths, centre of gravity, tyre grip and load sensitivity, downforce and drag, motor torque/power/speed, gear ratio, driven wheels, battery capacity/voltage/resistance/current limit, regen, brake bias, spring rates, anti-roll bars and damper rates. The defaults are a typical mid-field electric FS car, not a specific team's car.
+- **Car inputs:** mass, wheelbase, track widths, centre of gravity, tyre grip, load sensitivity and slip at peak grip (Pacejka Magic Formula curves), downforce and drag, motor torque/power/speed, gear ratio, driven wheels, battery capacity/voltage/resistance/current limit, regen, brake bias, spring rates, anti-roll bars and damper rates. The defaults are a typical mid-field electric FS car, not a specific team's car.
 - **Conditions:** driver accuracy, track roughness, battery charge, power limit, tyre wear, track grip (dry to wet) and air temperature.
 - **Suspension and dampers:** a time-based replay of body roll, pitch and heave, road bumps, damper speed histograms, and their effect on lap time.
 - **Setup optimiser:** searches gear ratio, spring rates and damper rates for the selected event and loads the result into Setup B.
 - **Points calculator:** runs the four dynamic events and scores them with the Formula Student formulas.
 - **Validation:** compares the simulation with a logged FS UK endurance lap, with error figures that update as you change the car.
-- **Per-corner view:** click a corner on the map for entry, minimum and exit speed, cornering and braking g, tyre loads, grip used on each axle, body roll, motor torque and battery power, for setup A and B.
+- **Per-corner view:** click a corner on the map for entry, minimum and exit speed, cornering and braking g, tyre loads, grip used on each axle, tyre slip angles, steering angle, body roll, motor torque and battery power, for setup A and B.
 
 ## How it works
 
@@ -35,6 +35,7 @@ The lowest of those speeds at each point is the fastest possible lap for a perfe
 | File | What it holds |
 | --- | --- |
 | `fslap/params.py` | Every input, its unit, default and explanation |
+| `fslap/tyre.py` | Pacejka Magic Formula tyre curves: slip angle, wheel slip, cornering drag |
 | `fslap/vehicle.py` | Car model: tyres, aero, load transfer, motor, battery, brakes |
 | `fslap/ride.py` | Time-based spring and damper replay: roll, pitch, heave, damper speeds |
 | `fslap/bumps.py` | Road bumps: quarter-car model and ISO 8608 road roughness |
@@ -53,17 +54,17 @@ Fixed driving line. Driver accuracy is the share of tyre grip the driver uses (1
 | Check | Simulator (default car) | Reference |
 | --- | --- | --- |
 | 75 m acceleration | 4.10 s | about 3.3 s (best AWD) to 4.5 s for competitive electric FS cars |
-| Skidpad | 5.01 s | about 4.7 to 5.3 s |
+| Skidpad | 5.08 s | about 4.7 to 5.3 s |
 | Skidpad, no wings, constant grip | within 0.06 s | textbook v = sqrt(mu g R) |
 | Spring and damper replay, settled values | identical tyre loads and roll angle | the steady model |
 | Spring and damper replay, overshoot after a sudden input | within 2% | textbook exp(-pi z / sqrt(1 - z^2)) |
 | Damper feedback into lap time | settles within 0.06 s between rounds; steady skidpad unchanged by dampers; a badly underdamped car is slower | expected behaviour |
 | Bump model gain | within 3% of a step-by-step simulation; exact mass x acceleration limit at low frequency | independent time-stepping, hand calculation |
 | Best damper setting over bumps | damping ratio about 0.4 | textbook road-holding optimum of roughly 0.3 to 0.5 |
-| FS UK flying lap, preset fitted to a logged stint | lap time +0.3% (fitted); energy per lap -0.6% and speed trace 4.3 km/h RMS, correlation 0.96 (not fitted) | logged GPS and power, fastest of 13 laps |
+| FS UK flying lap, preset fitted to a logged stint | lap time +0.1% (fitted); energy per lap +1.4% and speed trace 4.6 km/h RMS, correlation 0.95 (not fitted) | logged GPS and power, fastest of 13 laps |
 | FS UK flying lap, default car and perfect driver | about 19% quicker than the log | same |
 
-The default car is generic, so its absolute lap times are not a prediction for any real car. The fitted preset shows the model can reproduce a real lap once the inputs are right, with one known weakness: the simulated driver corners more gently (0.99 g against 1.17 g) and brakes harder (1.18 g against 0.75 g) than the real one, and the two errors cancel in lap time. The validation panel on the FS UK Endurance tab shows all of this live.
+The default car is generic, so its absolute lap times are not a prediction for any real car. The fitted preset shows the model can reproduce a real lap once the inputs are right, with one known weakness: the simulated driver corners more gently (1.00 g against 1.17 g) and brakes harder (1.21 g against 0.75 g) than the real one, and the two errors cancel in lap time. The validation panel on the FS UK Endurance tab shows all of this live.
 
 ## Running it
 

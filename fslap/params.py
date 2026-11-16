@@ -26,6 +26,8 @@ CAR_GROUPS = [
         P("mu_y", "Lateral grip coefficient", "-", 1.50, 0.8, 2.2, 0.01, "Peak grip for cornering at the reference load."),
         P("tyre_ref_load", "Reference tyre load", "N", 750, 300, 1500, 10, "The tyre load at which the grip coefficients above apply. Roughly one corner's share of the car's weight."),
         P("load_sens", "Load sensitivity", "-", 0.15, 0, 0.4, 0.01, "How much grip coefficient is lost when tyre load doubles from the reference load. 0.15 means 15% less. This is why load transfer costs grip: the loaded tyre gains less than the unloaded tyre loses."),
+        P("peak_slip_angle", "Slip angle at peak cornering grip", "deg", 8, 3, 15, 0.5, "A tyre only makes cornering force when it points slightly away from the direction it is travelling. This is the angle at which it grips hardest. Larger angles mean more drag while cornering and more tyre heating."),
+        P("peak_slip_ratio", "Wheel slip at peak drive or brake grip", "%", 10, 3, 25, 0.5, "A tyre only makes drive or brake force when it turns slightly faster or slower than the road passing under it. This is the amount of slip at which it grips hardest."),
         P("tyre_radius", "Tyre rolling radius", "m", 0.203, 0.18, 0.28, 0.001, "Radius of the loaded tyre. 0.203 m suits a 16 inch diameter tyre on a 10 inch wheel."),
         P("tyre_kv", "Tyre vertical stiffness", "N/mm", 110, 40, 300, 5, "How stiff the tyre is as a spring when squashed vertically. It sets how the wheel bounces over bumps. It depends mainly on tyre pressure."),
         P("bump_sens", "Grip lost to load flutter", "-", 0.3, 0, 1, 0.05, "When a tyre's load flutters over bumps it loses grip, because a tyre sheds force at once when load drops but needs time to build it back. This is the share of the load flutter that is lost as grip: 0.3 means a tyre whose load varies by 10% loses 3% of its grip. It is an assumed figure; real values come from tyre testing."),
@@ -81,13 +83,13 @@ PRESETS = [
     dict(id="typical", name="Typical FS electric car", car={}, cond={},
          note="A generic mid-field electric Formula Student car. Not any specific team's car."),
     dict(id="logged", name="Fitted to the logged FS UK stint",
-         car=dict(motor_torque=80, drive_eff=75, regen_kw=0, mu_x=1.2, mu_y=1.2),
-         cond=dict(power_cap=46, driver=80),
-         note="Read from the log: 46 kW peak power, no regen, and a constant push of about 2000 N of "
-              "electrical force at full throttle (so the car was torque limited, not power limited). "
-              "Fitted: tyre grip 1.2 with a driver using 80% of it, which reproduces the best lap time. "
-              "Assumed: everything else, including mass (300 kg with driver), so the 75% drivetrain "
-              "efficiency really stands for 'push divided by mass' and would change with the true mass."),
+         car=dict(motor_torque=80, drive_eff=80, regen_kw=0, mu_x=1.2, mu_y=1.2),
+         cond=dict(power_cap=46, driver=82),
+         note="Read from the log: 46 kW peak power, no regen, and a constant push of about 2000 N at full "
+              "throttle (so the car was torque limited, not power limited). "
+              "Fitted: tyre grip 1.2 with a driver using 82% of it, which reproduces the best lap time. "
+              "Assumed: everything else, including mass (300 kg with driver) and 80% drivetrain "
+              "efficiency. The true mass would change the fitted grip and driver figures."),
 ]
 
 PARAM_GROUPS = dict(

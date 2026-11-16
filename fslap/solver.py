@@ -91,7 +91,7 @@ def _integrate(veh, track, v, offs=None):
     t = 0.0
     q_ah = 0.0; e_out = 0.0; e_regen = 0.0
     ch = dict(t=[], v=[], ax=[], ay=[], p=[], torque=[], uf=[], ur=[], roll=[],
-              fz_fl=[], fz_fr=[], fz_rl=[], fz_rr=[])
+              fz_fl=[], fz_fr=[], fz_rl=[], fz_rr=[], slip_f=[], slip_r=[], steer=[], slip_ratio=[])
     for i in range(nseg):
         v0, v1 = v[i], v[i + 1]
         vm = max(0.5 * (v0 + v1), 0.15)
@@ -107,6 +107,8 @@ def _integrate(veh, track, v, offs=None):
         ch["t"].append(t); ch["v"].append(vm); ch["ax"].append(ax / G); ch["ay"].append(vm * vm * k / G)
         ch["p"].append(p / 1000.0); ch["torque"].append(st["torque"])
         ch["uf"].append(st["uf"]); ch["ur"].append(st["ur"]); ch["roll"].append(st["roll"])
+        ch["slip_f"].append(st["slip_f"]); ch["slip_r"].append(st["slip_r"])
+        ch["steer"].append(st["steer"]); ch["slip_ratio"].append(st["slip_ratio"])
         fz = st["fz"]
         ch["fz_fl"].append(fz[0]); ch["fz_fr"].append(fz[1]); ch["fz_rl"].append(fz[2]); ch["fz_rr"].append(fz[3])
         t += dt
@@ -164,6 +166,7 @@ def _find_corners(track, ch):
             uf=ch["uf"][apex], ur=ch["ur"][apex],
             fz=[ch["fz_fl"][apex], ch["fz_fr"][apex], ch["fz_rl"][apex], ch["fz_rr"][apex]],
             p_exit=ch["p"][b], torque_exit=ch["torque"][b], roll=ch["roll"][apex],
+            slip_f=abs(ch["slip_f"][apex]), slip_r=abs(ch["slip_r"][apex]), steer=abs(ch["steer"][apex]),
         ))
     return corners
 
@@ -174,7 +177,7 @@ def _time_at(ch, ds, s):
 
 
 def _round_ch(ch):
-    dec = dict(t=3, v=2, ax=3, ay=3, p=2, torque=1, uf=3, ur=3, roll=2)
+    dec = dict(t=3, v=2, ax=3, ay=3, p=2, torque=1, uf=3, ur=3, roll=2, slip_f=2, slip_r=2, steer=2, slip_ratio=2)
     return {k: [round(x, dec.get(k, 0)) for x in a] for k, a in ch.items()}
 
 
