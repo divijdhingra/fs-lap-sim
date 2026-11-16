@@ -666,6 +666,80 @@ function buildForm() {
   fillForm();
 }
 function markChanged(el) { el.classList.toggle("changed", String(state.setups[state.active][el.dataset.scope][el.dataset.key]) !== String(state.schema[el.dataset.scope][el.dataset.key])); }
+// ---------- saving, exporting and importing setups ----------
+// Saved setups live in this browser only (localStorage). A file export is the way to keep
+// one for good or pass it to someone else.
+const SAVE_KEY = "fslap.setups.v1";
+function readSaves() { try { return JSON.parse(localStorage.getItem(SAVE_KEY)) || {}; } catch { return {}; } }
+function writeSaves(all) { try { localStorage.setItem(SAVE_KEY, JSON.stringify(all)); return true; } catch { return false; } }
+function note(msg) { $("saveNote").textContent = msg; }
+// Build a full, valid setup from whatever was stored: unknown inputs are dropped, missing
+// ones take the default, numbers are held inside their allowed range.
+function cleanSetup(raw) {
+  const out = { car: { ...state.schema.car }, cond: { ...state.schema.cond } };
+  let used = 0;
+  const groups = [[state.schema.groups.cond.params, "cond"]].concat(state.schema.groups.car.map((g) => [g.params, "car"]));
+  for (const [params, scope] of groups) for (const p of params) {
+    const v = raw && raw[scope] ? raw[scope][p.key] : undefined;
+    if (v === undefined || v === null) continue;
+    if (p.options) { if (p.options.includes(v)) { out[scope][p.key] = v; used++; } }
+    else if (typeof v === "number" && isFinite(v)) { out[scope][p.key] = Math.min(p.max, Math.max(p.min, v)); used++; }
+  }
+  return used ? out : null;
+}
+function listSaves(pick) {
+  const names = Object.keys(readSaves()).sort((a, b) => a.localeCompare(b));
+  $("saved").innerHTML = names.length ? names.map((n) => `<option></option>`).join("") : `<option value="">No saved setups yet</option>`;
+  names.forEach((n, i) => { const o = $("saved").options[i]; o.value = n; o.textContent = n; });   // textContent: names are shown as plain text
+  if (pick && names.includes(pick)) $("saved").value = pick;
+  $("loadBtn").disabled = $("delBtn").disabled = !names.length;
+}
+function applySetup(setup, msg) {
+  state.setups[state.active] = setup; $("presetNote").textContent = "";
+  fillForm(); note(msg);
+  if (state.active === "B" && !state.compare) { state.compare = true; $("compare").checked = true; }
+  runNow();
+}
+function initSaves() {
+  listSaves();
+  $("saveBtn").onclick = () => {
+    const name = $("saveName").value.trim();
+    if (!name) return note("Type a name first.");
+    const all = readSaves(), existed = name in all;
+    all[name] = clone(state.setups[state.active]);
+    if (!writeSaves(all)) return note("This browser would not store the setup (private window or storage blocked). Use Export to file instead.");
+    listSaves(name); note(`${existed ? "Updated" : "Saved"} "${name}" from Setup ${state.active}. It is kept in this browser on this computer.`);
+  };
+  $("saveName").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("saveBtn").click(); } });
+  $("loadBtn").onclick = () => {
+    const name = $("saved").value, setup = cleanSetup(readSaves()[name]);
+    if (!setup) return note("That saved setup could not be read.");
+    $("saveName").value = name; applySetup(setup, `Loaded "${name}" into Setup ${state.active}.`);
+  };
+  $("delBtn").onclick = () => {
+    const name = $("saved").value, all = readSaves(); if (!(name in all)) return;
+    delete all[name]; writeSaves(all); listSaves(); note(`Deleted "${name}".`);
+  };
+  $("exportBtn").onclick = () => {
+    const name = $("saveName").value.trim() || `Setup ${state.active}`;
+    const file = { app: "fs-lap-sim", version: 1, name, saved: new Date().toISOString(), ...clone(state.setups[state.active]) };
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: "application/json" }));
+    a.download = (name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "setup") + ".fslap.json";
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    note(`Exported Setup ${state.active} as ${a.download}.`);
+  };
+  $("importBtn").onclick = () => $("importFile").click();
+  $("importFile").onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    let raw = null;
+    try { raw = JSON.parse(await f.text()); } catch { return note("That file is not a setup file (it is not valid JSON)."); }
+    const setup = cleanSetup(raw);
+    if (!setup) return note("That file has no setup inputs in it.");
+    if (typeof raw.name === "string") $("saveName").value = raw.name.slice(0, 40);
+    applySetup(setup, `Imported "${f.name}" into Setup ${state.active}. Press Save to keep it in this browser.`);
+  };
+}
 function fillForm() {
   $("form").querySelectorAll("[data-key]").forEach((el) => { el.value = state.setups[state.active][el.dataset.scope][el.dataset.key]; markChanged(el); });
   $("tabA").classList.toggle("on", state.active === "A"); $("tabB").classList.toggle("on", state.active === "B");
@@ -683,6 +757,7 @@ function wire() {
   $("tabA").onclick = () => { state.active = "A"; fillForm(); renderAll(); };
   $("tabB").onclick = () => { state.active = "B"; fillForm(); if (!state.compare) { state.compare = true; $("compare").checked = true; runNow(); } else renderAll(); };
   $("compare").onchange = (e) => { state.compare = e.target.checked; if (!state.compare) { state.active = "A"; fillForm(); } runNow(); };
+  initSaves();
   $("copy").onclick = () => { state.setups.B = JSON.parse(JSON.stringify(state.setups.A)); fillForm(); if (state.compare) runNow(); };
   $("reset").onclick = () => { state.setups[state.active] = { car: { ...state.schema.car }, cond: { ...state.schema.cond } }; fillForm(); runNow(); };
   $("colour").onchange = (e) => { state.colour = e.target.value; drawMap(); };

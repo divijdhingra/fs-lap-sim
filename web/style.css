@@ -143,3 +143,9 @@ form details[open] summary::after { content: "–"; }
 .primary { background: var(--accent); border: 0; border-radius: 7px; padding: 7px 12px; color: #fff; cursor: pointer; font-weight: 600; font-size: 12.5px; }
 .primary:disabled { opacity: .5; cursor: progress; }
 .ctab input.best { width: 90px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; text-align: right; font-variant-numeric: tabular-nums; }
+
+.saves { border-top: 1px solid var(--line); padding: 8px 0 4px; }
+.save-row { display: flex; gap: 6px; margin: 5px 0; }
+.save-row input[type="text"], .save-row select { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; color: var(--ink); }
+.save-row input:focus, .save-row select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+#saveNote { margin: 4px 0 6px; line-height: 1.45; }

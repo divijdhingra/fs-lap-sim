@@ -37,6 +37,13 @@
       <select id="preset"></select>
     </label>
     <p class="hint" id="presetNote"></p>
+    <div class="saves">
+      <label class="preset" for="saveName">Save this setup in your browser</label>
+      <div class="save-row"><input id="saveName" type="text" maxlength="40" placeholder="Name, for example Baseline"><button id="saveBtn" class="ghost">Save</button></div>
+      <div class="save-row"><select id="saved" aria-label="Saved setups"></select><button id="loadBtn" class="ghost">Load</button><button id="delBtn" class="ghost" aria-label="Delete the selected saved setup">Delete</button></div>
+      <div class="save-row"><button id="exportBtn" class="ghost">Export to file</button><button id="importBtn" class="ghost">Import from file</button><input id="importFile" type="file" accept=".json,application/json" hidden></div>
+      <p class="hint" id="saveNote"></p>
+    </div>
     <form id="form" autocomplete="off"></form>
   </aside>
 

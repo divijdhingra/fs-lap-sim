@@ -20,6 +20,7 @@ An interactive lap time simulator for **electric Formula Student cars**. Enter t
 - **Setup optimiser:** searches gear ratio, spring rates and damper rates for the selected event and loads the result into Setup B.
 - **Points calculator:** runs the four dynamic events and scores them with the Formula Student formulas.
 - **Validation:** compares the simulation with a logged FS UK endurance lap, with error figures that update as you change the car.
+- **Saving setups:** name a setup and save it in the browser, or export it to a small JSON file and import it again later or on another computer.
 - **Per-corner view:** click a corner on the map for entry, minimum and exit speed, cornering and braking g, tyre loads, grip used on each axle, tyre slip angles, steering angle, tyre camber, body roll, motor torque and battery power, for setup A and B.
 
 ## How it works
