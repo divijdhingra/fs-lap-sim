@@ -457,6 +457,9 @@ function onWorker(e) {
     $("preset").innerHTML = `<option value="">Choose…</option>` + m.schema.presets.map((p) => `<option value="${p.id}">${p.name}</option>`).join("");
     $("sources").innerHTML = m.tracks.map((t) => `<b>${t.name}:</b> ${t.source}`).join(" ");
     runNow();
+  } else if (asks[m.id]) {                 // a background run for the optimiser or points calculator
+    const f = asks[m.id]; delete asks[m.id];
+    m.type === "result" ? f.ok(m.result) : f.fail(new Error(m.message));
   } else if (m.type === "result") {
     const [batch, k] = m.id.split(":");
     if (+batch !== pending.batch) return;
@@ -467,6 +470,93 @@ function onWorker(e) {
       renderAll();
     }
   } else { st.classList.remove("busy"); st.textContent = "Error: " + m.message; console.error(m.message); }
+}
+
+// Background runs: returns a promise for one simulation, shared between the two engines.
+const asks = {};
+let askN = 0;
+function ask(track, setup) {
+  const id = `x:${++askN}`;
+  return new Promise((ok, fail) => { asks[id] = { ok, fail }; workers[askN % 2 ? "A" : "B"].postMessage({ id, req: { track, car: setup.car, cond: setup.cond } }); });
+}
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const paramDef = (key) => state.schema.groups.car.flatMap((g) => g.params).find((p) => p.key === key);
+// What "better" means for an event: time, with a heavy penalty for not finishing endurance.
+const score = (r) => (r.finished ? r.time : r.time + 1e5 * (r.laps - r.laps_done + 1));
+
+// ---------- setup optimiser ----------
+const OPT_PARAMS = ["gear_ratio", "wheel_rate_f", "wheel_rate_r", "damper_f", "damper_r"];
+const OPT_MIN_GAIN = 0.03;      // s; smaller differences are within the solver's rounding
+async function optimise() {
+  const btn = $("optRun"), out = $("optOut"), track = state.trackId;
+  btn.disabled = true;
+  const setup = clone(state.setups.A), before = clone(setup.car);
+  let done = 0;
+  const total = 1 + OPT_PARAMS.length * 6;
+  const tick = () => { out.innerHTML = `<p class="sub">Trying setups: ${++done} of about ${total}…</p>`; };
+  const tryCar = async (key, val) => { const c = clone(setup); c.car[key] = val; const r = await ask(track, c); tick(); return [val, score(r)]; };
+  let best = score(await ask(track, setup)); tick();
+  const start = best, log = [];
+  for (const key of OPT_PARAMS) {
+    const d = paramDef(key), cur = setup.car[key];
+    const snap = (v) => +Math.min(d.max, Math.max(d.min, Math.round(v / d.step) * d.step)).toFixed(4);
+    // coarse: four values either side of the current one, then two finer ones near the best
+    const coarse = [...new Set([0.6, 0.8, 1.25, 1.6].map((m) => snap(cur * m)))].filter((v) => v !== cur);
+    let pts = [[cur, best]].concat(await Promise.all(coarse.map((v) => tryCar(key, v))));
+    pts.sort((a, b) => a[0] - b[0]);
+    let bi = pts.reduce((m, p, i) => (p[1] < pts[m][1] ? i : m), 0);
+    const fine = [pts[bi - 1], pts[bi + 1]].filter(Boolean).map((p) => snap((p[0] + pts[bi][0]) / 2)).filter((v) => !pts.some((p) => p[0] === v));
+    pts = pts.concat(await Promise.all(fine.map((v) => tryCar(key, v))));
+    done += 2 - fine.length + 4 - coarse.length;
+    const top = pts.reduce((m, p) => (p[1] < m[1] ? p : m), pts[0]);
+    if (top[1] < best - OPT_MIN_GAIN) { setup.car[key] = top[0]; log.push([d, cur, top[0], best - top[1]]); best = top[1]; }
+    else log.push([d, cur, cur, 0]);
+  }
+  const fin = (x) => (x > 1e5 ? "did not finish" : fmtTime(x) + " s");
+  out.innerHTML = `<table class="ctab"><thead><tr><th></th><th>Setup A</th><th>Suggested</th><th>Time gained, s</th></tr></thead><tbody>` +
+    log.map(([d, a, b, g]) => `<tr><td>${d.label}, ${d.unit}</td><td>${a}</td><td>${b === a ? "no change" : b}</td><td>${g ? fmt(g, 2) : "–"}</td></tr>`).join("") +
+    `<tr><td><b>${state.tracks[track].name}</b></td><td>${fin(start)}</td><td>${fin(best)}</td><td>${start - best > 0 && start < 1e5 ? fmt(start - best, 2) : "–"}</td></tr></tbody></table>` +
+    `<p class="hint">${best < start - OPT_MIN_GAIN ? "The suggested setup has been loaded into Setup B, so every panel now compares it with Setup A." : "Nothing beat Setup A by more than the solver's rounding of 0.03 s, so Setup A is already close to the best for this event."}</p>`;
+  if (best < start - OPT_MIN_GAIN && track === state.trackId) {
+    state.setups.B = { car: setup.car, cond: clone(state.setups.A.cond) };
+    state.compare = true; $("compare").checked = true; fillForm(); runNow();
+  }
+  btn.disabled = false;
+}
+
+// ---------- Formula Student points ----------
+// Structure of the FS Rules 2024 dynamic event scoring (max points from rules table 3):
+// most points scale with how close you are to the fastest car, a few are for finishing.
+const EVENTS = [
+  { id: "skidpad", track: "skidpad", name: "Skidpad", max: 50, tmaxK: 1.25, base: 0.05, f: (x) => (x * x - 1) / 0.5625, best: 4.9 },
+  { id: "accel", track: "accel", name: "Acceleration", max: 50, tmaxK: 1.5, base: 0.05, f: (x) => (x - 1) / 0.5, best: 3.5 },
+  { id: "autox", track: "fsuk_autocross", name: "Autocross (sprint)", max: 100, tmaxK: 1.25, base: 0.05, f: (x) => (x - 1) / 0.25, best: 51.3 },
+  { id: "endu", track: "fsuk_endurance", name: "Endurance", max: 250, tmaxK: 1.333, base: 0.1, f: (x) => (x - 1) / 0.333, best: 1430 },
+];
+function eventPoints(ev, t, best, finished) {
+  if (!finished) return 0;
+  const tmax = ev.tmaxK * best, tt = Math.min(Math.max(t, best), tmax);    // capped at the slowest scoring time
+  return ev.max * (ev.base + (1 - ev.base) * Math.min(1, ev.f(tmax / tt)));
+}
+let pointRuns = null;
+async function runPoints() {
+  const btn = $("ptsRun"); btn.disabled = true; $("ptsOut").innerHTML = `<p class="sub">Running all four events…</p>`;
+  const keys = state.compare ? ["A", "B"] : ["A"];
+  const res = await Promise.all(keys.flatMap((k) => EVENTS.map((ev) => ask(ev.track, state.setups[k]).then((r) => [k, ev.id, r]))));
+  pointRuns = {}; for (const [k, id, r] of res) (pointRuns[k] ||= {})[id] = r;
+  btn.disabled = false; drawPoints();
+}
+function drawPoints() {
+  if (!pointRuns) return;
+  const keys = Object.keys(pointRuns), tot = Object.fromEntries(keys.map((k) => [k, 0]));
+  let html = `<table class="ctab"><thead><tr><th></th><th>Fastest car in the field, s</th>${keys.map((k) => `<th><i class="sw ${k.toLowerCase()}"></i> ${k} time, s</th><th>${k} points</th>`).join("")}<th>Maximum</th></tr></thead><tbody>`;
+  for (const ev of EVENTS) {
+    html += `<tr><td>${ev.name}</td><td><input class="best" type="number" step="0.01" data-ev="${ev.id}" value="${ev.best}"></td>`;
+    for (const k of keys) { const r = pointRuns[k][ev.id], p = eventPoints(ev, r.time, ev.best, r.finished); tot[k] += p; html += `<td>${r.finished ? fmtTime(r.time) : "did not finish"}</td><td>${fmt(p, 1)}</td>`; }
+    html += `<td>${ev.max}</td></tr>`;
+  }
+  html += `<tr><td><b>Total</b></td><td></td>${keys.map((k) => `<td></td><td><b>${fmt(tot[k], 1)}</b></td>`).join("")}<td>450</td></tr></tbody></table>`;
+  $("ptsOut").innerHTML = html;
 }
 
 // ---------- form and tabs ----------
@@ -512,6 +602,9 @@ function wire() {
     $("presetNote").textContent = p.note; e.target.value = "";
     fillForm(); runNow();
   };
+  $("optRun").onclick = () => optimise().catch((err) => { $("optOut").textContent = "Optimiser stopped: " + err.message; $("optRun").disabled = false; });
+  $("ptsRun").onclick = () => runPoints().catch((err) => { $("ptsOut").textContent = "Could not calculate: " + err.message; $("ptsRun").disabled = false; });
+  $("ptsOut").addEventListener("change", (e) => { const ev = EVENTS.find((q) => q.id === e.target.dataset.ev); if (ev && +e.target.value > 0) { ev.best = +e.target.value; drawPoints(); } });
   $("tabA").onclick = () => { state.active = "A"; fillForm(); renderAll(); };
   $("tabB").onclick = () => { state.active = "B"; fillForm(); if (!state.compare) { state.compare = true; $("compare").checked = true; runNow(); } else renderAll(); };
   $("compare").onchange = (e) => { state.compare = e.target.checked; if (!state.compare) { state.active = "A"; fillForm(); } runNow(); };

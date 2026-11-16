@@ -2,17 +2,24 @@
 
 An interactive lap time simulator for **electric Formula Student cars**. Enter the car's figures, pick an event, and see lap time, energy use and what the car is doing at every corner. Two setups can be compared side by side.
 
-![Preview](docs/preview.png)
+**Live demo:** https://divijdhingra.github.io/fs-lap-sim/
 
-![Validation against logged data](docs/validation.png)
+![Track map, corner details and setup comparison](docs/preview.png)
 
-![Suspension and dampers panel](docs/suspension.png)
+| | |
+| --- | --- |
+| ![Validation against logged data](docs/validation.png) | ![Suspension and dampers](docs/suspension.png) |
+| ![Setup optimiser and points calculator](docs/optimiser.png) | ![Silverstone GP coloured by braking and acceleration](docs/silverstone.png) |
 
 ## What it does
 
 - **Events:** 75 m acceleration, skidpad, an FS UK sprint lap, the 22 km FS UK endurance (with battery energy tracked lap by lap), and flying laps of the Silverstone and Hockenheim Grand Prix circuits.
 - **Car inputs:** mass, wheelbase, track widths, centre of gravity, tyre grip and load sensitivity, downforce and drag, motor torque/power/speed, gear ratio, driven wheels, battery capacity/voltage/resistance/current limit, regen, brake bias, spring rates, anti-roll bars and damper rates. The defaults are a typical mid-field electric FS car, not a specific team's car.
 - **Conditions:** driver accuracy, track roughness, battery charge, power limit, tyre wear, track grip (dry to wet) and air temperature.
+- **Suspension and dampers:** a time-based replay of body roll, pitch and heave, road bumps, damper speed histograms, and their effect on lap time.
+- **Setup optimiser:** searches gear ratio, spring rates and damper rates for the selected event and loads the result into Setup B.
+- **Points calculator:** runs the four dynamic events and scores them with the Formula Student formulas.
+- **Validation:** compares the simulation with a logged FS UK endurance lap, with error figures that update as you change the car.
 - **Per-corner view:** click a corner on the map for entry, minimum and exit speed, cornering and braking g, tyre loads, grip used on each axle, body roll, motor torque and battery power, for setup A and B.
 
 ## How it works
@@ -32,6 +39,7 @@ The lowest of those speeds at each point is the fastest possible lap for a perfe
 | `fslap/ride.py` | Time-based spring and damper replay: roll, pitch, heave, damper speeds |
 | `fslap/bumps.py` | Road bumps: quarter-car model and ISO 8608 road roughness |
 | `fslap/solver.py` | The lap solver, energy accounting and corner detection |
+| `tools/build_validation.py` | Builds `data/validation.json` from logged data |
 | `tools/build_tracks.py` | Builds `data/tracks.json` from rulebook dimensions, open racing lines and GPS |
 | `web/` and `index.html` | The page: track map, charts and tables |
 | `tests/` | Benchmark and sanity checks |

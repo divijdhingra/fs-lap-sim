@@ -92,6 +92,18 @@
       </div>
     </div>
 
+    <div class="card">
+      <div class="card-head"><h2>Setup optimiser</h2><button id="optRun" class="primary">Find a faster setup for this event</button></div>
+      <p class="sub">Starts from Setup A and tries different gear ratios, front and rear spring rates, and front and rear damper rates, one at a time, keeping any change that gains more than 0.03 s on the selected event. It takes about half a minute, longer for endurance. The answer is for this event only: gearing that suits the 75 m sprint will not suit endurance.</p>
+      <div id="optOut"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Formula Student points</h2><button id="ptsRun" class="primary">Calculate points</button></div>
+      <p class="sub">Runs skidpad, acceleration, autocross and endurance with the current setup and scores them the way the competition does: most of each event's points depend on how close you are to the fastest car, and a few are for finishing. Type in the fastest times from a real results sheet; the figures shown first are placeholders. Efficiency (75 points) and the static events are not included.</p>
+      <div id="ptsOut"></div>
+    </div>
+
     <div class="card" id="valCard" hidden>
       <div class="card-head"><h2>Validation against logged data</h2><div id="valLegend" class="series-legend"></div></div>
       <p class="sub" id="valIntro"></p>
@@ -128,6 +140,8 @@
           <li>All-wheel drive assumes torque is shared between axles in proportion to available grip.</li>
           <li>Regen assumes the brake balance stays at the set bias, with regen replacing part of the friction braking on the driven axle. No regen below 5 km/h, as in the rules.</li>
           <li>Within one lap the battery limits are fixed at their start-of-lap values; charge is updated lap by lap.</li>
+          <li>The setup optimiser changes one input at a time (a coordinate search), so it can miss gains that need two inputs changed together. It ignores changes worth less than 0.03 s.</li>
+          <li>Points use the structure of the Formula Student Rules 2024 dynamic scoring (skidpad and acceleration 50 points each, autocross 100, endurance 250; slowest scoring time 1.25, 1.5, 1.25 and 1.333 times the fastest; 5% of the points for finishing, 10% in endurance). Check the current rulebook before relying on the exact figures. The autocross here uses the FS UK endurance layout.</li>
           <li>The track is flat. Hills and banking are ignored.</li>
           <li>Endurance ignores the driver change stop, which is not timed.</li>
         </ul>
