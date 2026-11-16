@@ -4,6 +4,8 @@ An interactive lap time simulator for **electric Formula Student cars**. Enter t
 
 ![Preview](docs/preview.png)
 
+![Validation against logged data](docs/validation.png)
+
 ![Suspension and dampers panel](docs/suspension.png)
 
 ## What it does
@@ -50,9 +52,10 @@ Fixed driving line. Driver accuracy is the share of tyre grip the driver uses (1
 | Damper feedback into lap time | settles within 0.06 s between rounds; steady skidpad unchanged by dampers; a badly underdamped car is slower | expected behaviour |
 | Bump model gain | within 3% of a step-by-step simulation; exact mass x acceleration limit at low frequency | independent time-stepping, hand calculation |
 | Best damper setting over bumps | damping ratio about 0.4 | textbook road-holding optimum of roughly 0.3 to 0.5 |
-| FS UK endurance lap against a logged stint | speed trace correlation 0.96, lap about 19% quicker | logged GPS laps |
+| FS UK flying lap, preset fitted to a logged stint | lap time +0.3% (fitted); energy per lap -0.6% and speed trace 4.3 km/h RMS, correlation 0.96 (not fitted) | logged GPS and power, fastest of 13 laps |
+| FS UK flying lap, default car and perfect driver | about 19% quicker than the log | same |
 
-The last row matters: the shape of the lap is right, but a generic car with a perfect driver is quicker than a real driver in a real car. Absolute lap times should not be quoted as accurate until the inputs are a real car's figures.
+The default car is generic, so its absolute lap times are not a prediction for any real car. The fitted preset shows the model can reproduce a real lap once the inputs are right, with one known weakness: the simulated driver corners more gently (0.99 g against 1.17 g) and brakes harder (1.18 g against 0.75 g) than the real one, and the two errors cancel in lap time. The validation panel on the FS UK Endurance tab shows all of this live.
 
 ## Running it
 

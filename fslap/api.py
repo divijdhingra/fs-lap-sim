@@ -1,6 +1,6 @@
 """Thin JSON wrapper used by the web page (and handy from the command line)."""
 import json
-from .params import PARAM_GROUPS, default_car, default_conditions
+from .params import PARAM_GROUPS, PRESETS, default_car, default_conditions
 from .solver import simulate
 
 _TRACKS = {}
@@ -13,7 +13,7 @@ def load_tracks(text):
                             laps=t.get("laps", 1), source=t.get("source", "")) for t in _TRACKS.values()])
 
 def schema():
-    return json.dumps(dict(groups=PARAM_GROUPS, car=default_car(), cond=default_conditions()))
+    return json.dumps(dict(groups=PARAM_GROUPS, car=default_car(), cond=default_conditions(), presets=PRESETS))
 
 def run(text):
     req = json.loads(text)

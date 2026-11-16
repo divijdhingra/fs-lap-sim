@@ -76,6 +76,20 @@ COND_GROUP = ("Conditions", [
     P("air_temp", "Air temperature", "°C", 20, -5, 45, 1, "Warmer air is thinner, which reduces both downforce and drag."),
 ])
 
+# Ready-made starting points. Each lists only what differs from the defaults.
+PRESETS = [
+    dict(id="typical", name="Typical FS electric car", car={}, cond={},
+         note="A generic mid-field electric Formula Student car. Not any specific team's car."),
+    dict(id="logged", name="Fitted to the logged FS UK stint",
+         car=dict(motor_torque=80, drive_eff=75, regen_kw=0, mu_x=1.2, mu_y=1.2),
+         cond=dict(power_cap=46, driver=80),
+         note="Read from the log: 46 kW peak power, no regen, and a constant push of about 2000 N of "
+              "electrical force at full throttle (so the car was torque limited, not power limited). "
+              "Fitted: tyre grip 1.2 with a driver using 80% of it, which reproduces the best lap time. "
+              "Assumed: everything else, including mass (300 kg with driver), so the 75% drivetrain "
+              "efficiency really stands for 'push divided by mass' and would change with the true mass."),
+]
+
 PARAM_GROUPS = dict(
     car=[dict(name=n, params=ps) for n, ps in CAR_GROUPS],
     cond=dict(name=COND_GROUP[0], params=COND_GROUP[1]),

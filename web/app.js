@@ -404,7 +404,40 @@ function drawTable() {
     `<tr data-n="${c.n}" class="${c.n === state.corner ? "on" : ""}"><td>${c.n}</td><td>${c.dir}</td><td>${fmt(c.radius, 1)}</td><td>${fmt(kmh(c.v_entry), 1)}</td><td>${fmt(kmh(c.v_apex), 1)}</td><td>${fmt(kmh(c.v_exit), 1)}</td><td>${fmt(c.ay_peak, 2)}</td><td>${fmt(c.brake_peak, 2)}</td><td>${fmt(c.time, 2)}</td>${B && B.corners[i] ? `<td>${signed(B.corners[i].time - c.time, 2)}</td>` : ""}</tr>`).join("") + "</tbody>";
 }
 
-function renderAll() { drawKpis(); drawCorner(); drawTable(); drawMap(); drawCharts(); drawRide(); }
+// ---------- validation against logged data ----------
+let validation = null;
+fetch(new URL("../data/validation.json", import.meta.url)).then((r) => r.json()).then((v) => { validation = v; drawValidation(); }).catch(() => {});
+function drawValidation() {
+  const A = state.results.A, B = state.compare ? state.results.B : null, card = $("valCard"), L = validation;
+  card.hidden = !(L && A && A.track_id === "fsuk_endurance" && A.shown_lap === 2);
+  if (card.hidden) return;
+  const n = Math.min(A.ch.v.length, L.v.length), lv = L.v.slice(0, n).map(kmh), sv = A.ch.v.slice(0, n).map(kmh);
+  const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+  const ms = mean(sv), ml = mean(lv);
+  let sxy = 0, sxx = 0, syy = 0, se = 0;
+  for (let i = 0; i < n; i++) { sxy += (sv[i] - ms) * (lv[i] - ml); sxx += (sv[i] - ms) ** 2; syy += (lv[i] - ml) ** 2; se += (sv[i] - lv[i]) ** 2; }
+  const eLog = L.lap_energy_kwh[L.best_lap - 1], eSim = A.lap_rows[1].e_kwh;
+  const pct = (sim, log) => `${signed(100 * (sim - log) / log, 1)}%`;
+  const tiles = [
+    ["Lap time", `${fmt(A.lap_time, 2)}`, "s", `logged ${fmt(L.best_time, 2)} s, error ${pct(A.lap_time, L.best_time)}`],
+    ["Energy per lap", `${fmt(eSim, 3)}`, "kWh", `logged ${fmt(eLog, 3)} kWh, error ${pct(eSim, eLog)}`],
+    ["Speed error (RMS)", fmt(Math.sqrt(se / n), 1), "km/h", `average ${signed(ms - ml, 1)} km/h, correlation ${fmt(sxy / Math.sqrt(sxx * syy), 2)}`],
+    ["Top speed", fmt(Math.max(...sv), 1), "km/h", `logged ${fmt(Math.max(...lv), 1)} km/h`],
+    ["Peak cornering", fmt(A.ay_max, 2), "g", `logged ${fmt(L.peak_lat_g, 2)} g`],
+    ["Peak braking", fmt(-A.ax_min, 2), "g", `logged ${fmt(L.peak_brake_g, 2)} g`],
+    ["Peak power", fmt(A.p_max, 1), "kW", `logged ${fmt(L.peak_power_kw, 1)} kW`],
+  ];
+  $("valKpis").innerHTML = tiles.map(([l, v, u, d]) => `<div class="kpi small"><div class="l">${l}</div><div class="v">${v}<small>${u}</small></div><div class="d err">${d}</div></div>`).join("");
+  $("valIntro").textContent = `Logged data: ${L.source} The grey line is the fastest logged lap (lap ${L.best_lap}, ${fmt(L.best_time, 2)} s). The logged laps ranged from ${fmt(Math.min(...L.lap_times), 1)} to ${fmt(Math.max(...L.lap_times), 1)} s. Peak g figures from the log are the level exceeded 1% of the time, from GPS.`;
+  $("valLegend").innerHTML = `<span><i class="sw log"></i>Logged</span><span><i class="sw a"></i>Setup A</span>` + (B ? `<span><i class="sw b"></i>Setup B</span>` : "");
+  const bands = A.corners.map((c) => ({ a: c.start_i, b: c.end_i, on: c.n === state.corner }));
+  const mk = (id, log, get, last) => drawLineChart($(id), { n, bands, cursor: state.cursor, xlabels: last, dx: A.ds, zero: !last ? false : true,
+    series: [{ data: log, colour: COL.ink2 }, { data: get(A), colour: COL.A }].concat(B && B.shown_lap === 2 ? [{ data: get(B), colour: COL.B }] : []) });
+  mk("valSpeed", lv, (r) => r.ch.v.slice(0, n).map(kmh), false);
+  mk("valPower", L.p.slice(0, n), (r) => r.ch.p.slice(0, n), true);
+}
+
+function renderAll() { drawKpis(); drawCorner(); drawTable(); drawMap(); drawCharts(); drawRide(); drawValidation(); }
 
 // ---------- running the simulation ----------
 function schedule(delay = 300) { clearTimeout(runTimer); runTimer = setTimeout(runNow, delay); }
@@ -421,6 +454,7 @@ function onWorker(e) {
     for (const t of m.tracks) state.tracks[t.id] = t;
     for (const k of ["A", "B"]) state.setups[k] = { car: { ...m.schema.car }, cond: { ...m.schema.cond } };
     buildTabs(m.tracks); buildForm();
+    $("preset").innerHTML = `<option value="">Choose…</option>` + m.schema.presets.map((p) => `<option value="${p.id}">${p.name}</option>`).join("");
     $("sources").innerHTML = m.tracks.map((t) => `<b>${t.name}:</b> ${t.source}`).join(" ");
     runNow();
   } else if (m.type === "result") {
@@ -472,6 +506,12 @@ function fillForm() {
   $("tabA").classList.toggle("on", state.active === "A"); $("tabB").classList.toggle("on", state.active === "B");
 }
 function wire() {
+  $("preset").onchange = (e) => {
+    const p = state.schema.presets.find((q) => q.id === e.target.value); if (!p) return;
+    state.setups[state.active] = { car: { ...state.schema.car, ...p.car }, cond: { ...state.schema.cond, ...p.cond } };
+    $("presetNote").textContent = p.note; e.target.value = "";
+    fillForm(); runNow();
+  };
   $("tabA").onclick = () => { state.active = "A"; fillForm(); renderAll(); };
   $("tabB").onclick = () => { state.active = "B"; fillForm(); if (!state.compare) { state.compare = true; $("compare").checked = true; runNow(); } else renderAll(); };
   $("compare").onchange = (e) => { state.compare = e.target.checked; if (!state.compare) { state.active = "A"; fillForm(); } runNow(); };

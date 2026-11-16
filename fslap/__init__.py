@@ -3,6 +3,6 @@
 Pure Python (standard library only) so the same code runs on a laptop and,
 through Pyodide, directly inside a web browser.
 """
-from .params import PARAM_GROUPS, default_car, default_conditions
+from .params import PARAM_GROUPS, PRESETS, default_car, default_conditions
 from .vehicle import Vehicle
 from .solver import simulate
