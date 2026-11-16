@@ -68,6 +68,7 @@ class Vehicle:
         self.rsd = self.kroll_f / (self.kroll_f + self.kroll_r)     # roll stiffness distribution, front share
         self.p_cap = cond["power_cap"] * 1000.0
         self.track_grip = cond["track_grip"] / 100.0
+        self.skill = min(1.0, max(0.3, cond.get("driver", 100) / 100.0))
         self.rr = self.crr * self.m * G
         self.set_state(cond["soc_start"] / 100.0, cond["tyre_wear"])
 
@@ -77,6 +78,9 @@ class Vehicle:
         self.soc = soc
         self.wear = min(100.0, wear_pct)
         self.grip = self.track_grip * (1.0 - WEAR_GRIP_LOSS * self.wear / 100.0)
+        # The grip the driver is prepared to use. The tyres still have self.grip;
+        # an imperfect driver simply leaves some of it unused.
+        self.grip_drv = self.grip * self.skill
         self.voc = self.ns * cell_ocv(soc)
         # Most power the battery can give at its terminals: current limit, with voltage sag.
         p_batt = self.i_max * (self.voc - self.i_max * self.r_int)
@@ -157,8 +161,8 @@ class Vehicle:
         if e2 < 0.4: e2 = 0.4
         if e3 < 0.4: e3 = 0.4
         if e4 < 0.4: e4 = 0.4
-        ef = (fl * e1 + fr * e2) * self.grip
-        er = (rl * e3 + rr * e4) * self.grip
+        ef = (fl * e1 + fr * e2) * self.grip_drv
+        er = (rl * e3 + rr * e4) * self.grip_drv
         may = m * abs(ay)
         uf = may * self.wf / (self.mu_y0 * ef) if ef > 0 else 9.0
         ur = may * (1 - self.wf) / (self.mu_y0 * er) if er > 0 else 9.0

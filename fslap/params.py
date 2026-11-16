@@ -64,6 +64,7 @@ CAR_GROUPS = [
 ]
 
 COND_GROUP = ("Conditions", [
+    P("driver", "Driver accuracy", "%", 100, 50, 100, 1, "How much of the tyres' grip the driver actually uses when cornering, braking and putting power down. 100 = a perfect driver on the limit everywhere. A good student driver is typically around 85 to 95. On a straight the driver still uses full power."),
     P("soc_start", "Battery charge at start", "%", 100, 5, 100, 1, "State of charge when the run starts. Lower charge means lower voltage, less power and a lower top speed."),
     P("power_cap", "Power limit", "kW", 80, 5, 80, 1, "Electrical power limit at the battery. The rules cap this at 80 kW. Teams turn it down in endurance to make the battery last."),
     P("tyre_wear", "Tyre wear at start", "%", 0, 0, 100, 1, "0 = new tyres, 100 = fully worn. Assumed to cut grip in a straight line down to 12% less at fully worn."),

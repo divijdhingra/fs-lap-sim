@@ -57,6 +57,24 @@ class Benchmarks(unittest.TestCase):
             self.assertAlmostEqual(total, v.m * 9.81 + v.q_cl * speed ** 2, delta=1.0)
 
 
+class Driver(unittest.TestCase):
+    def test_less_accurate_driver_is_slower(self):
+        t = [run("fsuk_autocross", cond={"driver": d})["time"] for d in (100, 90, 80)]
+        self.assertTrue(t[0] < t[1] < t[2])
+
+    def test_skidpad_scales_as_theory_says(self):
+        # Cornering speed goes with the square root of grip, so a driver using
+        # 81 % of the grip should take 1 / 0.9 times as long round a circle.
+        car = {"cl_a": 0, "load_sens": 0, "cd_a": 0.01, "rolling_res": 0.001}
+        a = run("skidpad", car)["time"]
+        b = run("skidpad", car, {"driver": 81})["time"]
+        self.assertAlmostEqual(b / a, 1 / 0.9, delta=0.01)
+
+    def test_straight_line_power_not_reduced(self):
+        # Top speed on a long straight is set by the motor, not by the driver setting.
+        self.assertAlmostEqual(run("silverstone_gp", cond={"driver": 85})["v_max"], run("silverstone_gp")["v_max"], delta=0.1)
+
+
 class FastPath(unittest.TestCase):
     def test_fast_grip_routine_matches_reference(self):
         # _fx_left is a hand-inlined copy of wheel_loads + _axle_caps; keep them in step.
