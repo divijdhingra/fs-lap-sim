@@ -13,6 +13,7 @@ Method (the standard quasi-steady-state lap time recipe):
 import math
 from .vehicle import Vehicle, G, SOC_MIN
 from .ride import ride_replay, bump_metrics
+from .tyre import temp_step, temp_grip, wear_added
 
 
 def _corner_limits(veh, ks, offs=None, base=None):
@@ -91,7 +92,9 @@ def _integrate(veh, track, v, offs=None):
     t = 0.0
     q_ah = 0.0; e_out = 0.0; e_regen = 0.0
     ch = dict(t=[], v=[], ax=[], ay=[], p=[], torque=[], uf=[], ur=[], roll=[],
-              fz_fl=[], fz_fr=[], fz_rl=[], fz_rr=[], slip_f=[], slip_r=[], steer=[], slip_ratio=[])
+              fz_fl=[], fz_fr=[], fz_rl=[], fz_rr=[], slip_f=[], slip_r=[], steer=[], slip_ratio=[], temp_f=[], temp_r=[])
+    tf, tr, air = veh.temp_f, veh.temp_r, veh.air_temp      # tyre temperatures at the start of this lap
+    tf_sum = tr_sum = 0.0; sl_f = sl_r = 0.0
     for i in range(nseg):
         v0, v1 = v[i], v[i + 1]
         vm = max(0.5 * (v0 + v1), 0.15)
@@ -111,8 +114,14 @@ def _integrate(veh, track, v, offs=None):
         ch["steer"].append(st["steer"]); ch["slip_ratio"].append(st["slip_ratio"])
         fz = st["fz"]
         ch["fz_fl"].append(fz[0]); ch["fz_fr"].append(fz[1]); ch["fz_rl"].append(fz[2]); ch["fz_rr"].append(fz[3])
+        # tyre temperature: heated by sliding and rolling losses, cooled by the air
+        tf = temp_step(tf, st["heat_f"], vm, air, dt); tr = temp_step(tr, st["heat_r"], vm, air, dt)
+        ch["temp_f"].append(tf); ch["temp_r"].append(tr)
+        tf_sum += tf * dt; tr_sum += tr * dt
+        sl_f += st["slide_f"] * dt; sl_r += st["slide_r"] * dt
         t += dt
-    return dict(time=t, q_ah=q_ah, e_out_kwh=e_out / 3.6e6, e_regen_kwh=e_regen / 3.6e6, ch=ch)
+    return dict(time=t, q_ah=q_ah, e_out_kwh=e_out / 3.6e6, e_regen_kwh=e_regen / 3.6e6, ch=ch,
+                temp_end=(tf, tr), temp_mean=(tf_sum / t, tr_sum / t), slide_j=(sl_f, sl_r))
 
 
 def _find_corners(track, ch):
@@ -177,7 +186,7 @@ def _time_at(ch, ds, s):
 
 
 def _round_ch(ch):
-    dec = dict(t=3, v=2, ax=3, ay=3, p=2, torque=1, uf=3, ur=3, roll=2, slip_f=2, slip_r=2, steer=2, slip_ratio=2)
+    dec = dict(t=3, v=2, ax=3, ay=3, p=2, torque=1, uf=3, ur=3, roll=2, slip_f=2, slip_r=2, steer=2, slip_ratio=2, temp_f=1, temp_r=1)
     return {k: [round(x, dec.get(k, 0)) for x in a] for k, a in ch.items()}
 
 
@@ -246,12 +255,19 @@ def simulate(car, cond, track):
     standing = track.get("standing_start", False)
     soc0 = veh.soc
     wear0 = veh.wear
+    temp0 = veh.temp_f
+    if laps == 1:
+        # Tyre grip for a single lap uses the average tyre temperature over that
+        # lap. Two quick solves find it: solve, read the temperatures, solve again.
+        for _ in range(2):
+            pre = _integrate(veh, track, _solve_lap(veh, track, _corner_limits(veh, track["k"]), standing))
+            veh.set_tyres(wear0, wear0, *pre["temp_mean"])
     lap_km = len(track["k"]) * ds / 1000.0
     lap_rows = []
     total = 0.0; e_out = 0.0; e_regen = 0.0
     shown = None
     finished = True
-    vlim = None; vlim_wear = None
+    vlim = None; vlim_grip = None
     # Tyre load differences caused by body movement on the springs and dampers.
     # For multi-lap events they are worked out once, on a flying lap.
     offs, fb_final, fb_times = _dynamic_offsets(veh, track, standing and laps == 1)
@@ -264,25 +280,43 @@ def simulate(car, cond, track):
             vlim, res = fb_final                 # already solved in the feedback loop
         else:
             if vlim is None:
-                vlim = fb_final[0]; vlim_wear = veh.wear
-            elif abs(veh.wear - vlim_wear) >= 2.0:
-                vlim = _corner_limits(veh, track["k"], offs, _corner_limits(veh, track["k"])); vlim_wear = veh.wear
+                vlim = fb_final[0]; vlim_grip = (veh.grip_f, veh.grip_r)
+            elif abs(veh.grip_f / vlim_grip[0] - 1) > 0.005 or abs(veh.grip_r / vlim_grip[1] - 1) > 0.005:
+                # corner speed limits only change with tyre grip (wear and temperature)
+                vlim = _corner_limits(veh, track["k"], offs, vlim); vlim_grip = (veh.grip_f, veh.grip_r)
             res = _integrate(veh, track, _solve_lap(veh, track, vlim, standing and lap == 1, offs), offs)
         p_avail = veh.p_elec / 1000.0
         soc_end = veh.soc - res["q_ah"] / veh.cap_ah
         total += res["time"]; e_out += res["e_out_kwh"]; e_regen += res["e_regen_kwh"]
         lap_rows.append(dict(lap=lap, time=round(res["time"], 3), soc_end=round(soc_end * 100, 2),
                              e_kwh=round(res["e_out_kwh"] - res["e_regen_kwh"], 4),
-                             p_avail=round(p_avail, 1), wear=round(veh.wear, 2)))
+                             p_avail=round(p_avail, 1), wear=round(veh.wear, 2),
+                             wear_f=round(veh.wear_f, 2), wear_r=round(veh.wear_r, 2),
+                             temp_f=round(res["temp_end"][0], 1), temp_r=round(res["temp_end"][1], 1),
+                             grip_f=round(100 * veh.grip_f / veh.track_grip, 1), grip_r=round(100 * veh.grip_r / veh.track_grip, 1)))
         # Show the first flying lap for multi-lap events, otherwise the only lap.
         if shown is None and (laps == 1 or lap == 2):
             shown = res; shown_lap = lap
-        veh.set_state(soc_end, veh.wear + cond["wear_rate"] * lap_km if laps > 1 else veh.wear)
+        veh.set_state(soc_end)
+        if laps > 1:
+            # carry tyre temperature and wear into the next lap
+            wf = veh.wear_f + wear_added(veh.wear_rate, res["slide_j"][0], res["temp_mean"][0], veh.t_opt) * 1.0
+            wr = veh.wear_r + wear_added(veh.wear_rate, res["slide_j"][1], res["temp_mean"][1], veh.t_opt) * 1.0
+            veh.temp_f, veh.temp_r = res["temp_end"]
+            veh.set_tyres(wf, wr, *res["temp_end"])
+        last = res
     if shown is None:
         shown = res; shown_lap = 1
     ch = shown["ch"]
     # Replay the lap through the spring and damper model (see ride.py).
-    veh.set_state(soc0, wear0)
+    tyres = dict(temp_start=temp0, temp_f_end=round(last["temp_end"][0], 1), temp_r_end=round(last["temp_end"][1], 1),
+                 temp_f_mean=round(shown["temp_mean"][0], 1), temp_r_mean=round(shown["temp_mean"][1], 1),
+                 temp_opt=veh.t_opt, wear_f=round(veh.wear_f, 2), wear_r=round(veh.wear_r, 2),
+                 slide_kj_f=round(shown["slide_j"][0] / 1000.0, 1), slide_kj_r=round(shown["slide_j"][1] / 1000.0, 1),
+                 grip_f=round(100 * temp_grip(shown["temp_mean"][0], veh.t_opt), 1),
+                 grip_r=round(100 * temp_grip(shown["temp_mean"][1], veh.t_opt), 1))
+    veh.set_state(soc0)
+    veh.temp_f = veh.temp_r = temp0
     ride_ch, ride = ride_replay(veh, ch["t"], ch["v"], ch["ax"], ch["ay"])
     for q, w in enumerate(WHEELS):          # time-based load minus settled load, for display
         ride_ch["dfz_" + w] = [round(ride_ch["fzd_" + w][j] - _settled_loads(veh, ch, j)[q]) for j in range(len(ch["v"]))]
@@ -305,7 +339,7 @@ def simulate(car, cond, track):
         mass=veh.m, v_top=round(veh.v_top, 2), p_avail=round(Vehicle(car, cond).p_elec / 1000.0, 1),
         lap_rows=lap_rows if laps > 1 else [],
         corners=_find_corners(track, ch),
-        ch=_round_ch(ch), ride=ride,
+        ch=_round_ch(ch), ride=ride, tyres=tyres,
     )
     out["ch"].update(ride_ch)
     if track["kind"] == "skidpad":

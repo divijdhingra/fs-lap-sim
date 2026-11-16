@@ -7,10 +7,9 @@ and dampers as the driver turns in or hits a bump) are not simulated.
 """
 import math
 from .bumps import tyre_load_rms
-from .tyre import MagicCurve, C_LAT, E_LAT, C_LONG, E_LONG
+from .tyre import MagicCurve, C_LAT, E_LAT, C_LONG, E_LONG, WEAR_GRIP_LOSS, temp_grip
 
 G = 9.81
-WEAR_GRIP_LOSS = 0.12      # grip lost at 100 % tyre wear (assumption)
 SOC_MIN = 0.05             # battery treated as empty below this
 # Open-circuit voltage of one Li-ion cell against state of charge (typical NMC cell).
 _OCV = [(0.0, 3.00), (0.05, 3.30), (0.10, 3.45), (0.20, 3.55), (0.30, 3.60), (0.50, 3.70),
@@ -84,17 +83,31 @@ class Vehicle:
         self.track_grip = cond["track_grip"] / 100.0
         self.skill = min(1.0, max(0.3, cond.get("driver", 100) / 100.0))
         self.rr = self.crr * self.m * G
-        self.set_state(cond["soc_start"] / 100.0, cond["tyre_wear"])
+        self.air_temp = cond["air_temp"]
+        self.t_opt = c.get("tyre_temp_opt", 70.0)
+        self.wear_rate = cond.get("wear_rate", 0.0)
+        t0 = cond.get("tyre_temp", self.t_opt)
+        self.temp_f = self.temp_r = t0          # tyre temperatures now (they move during a lap)
+        self.set_state(cond["soc_start"] / 100.0)
+        self.set_tyres(cond["tyre_wear"], cond["tyre_wear"], t0, t0)
 
     # ---- things that change during a run -------------------------------
-    def set_state(self, soc, wear_pct):
-        """Update battery charge and tyre wear; recompute what depends on them."""
+    def set_tyres(self, wear_f, wear_r, tg_f=None, tg_r=None):
+        """Update tyre wear (%) and the tyre temperatures used for grip (C), per axle."""
+        self.wear_f, self.wear_r = min(100.0, wear_f), min(100.0, wear_r)
+        self.wear = 0.5 * (self.wear_f + self.wear_r)
+        if tg_f is not None:
+            self.tg_f, self.tg_r = tg_f, tg_r
+        # grip of each axle's tyres: track surface x wear x temperature
+        self.grip_f = self.track_grip * (1.0 - WEAR_GRIP_LOSS * self.wear_f / 100.0) * temp_grip(self.tg_f, self.t_opt)
+        self.grip_r = self.track_grip * (1.0 - WEAR_GRIP_LOSS * self.wear_r / 100.0) * temp_grip(self.tg_r, self.t_opt)
+        # The grip the driver is prepared to use. The tyres still have grip_f and
+        # grip_r; an imperfect driver simply leaves some of it unused.
+        self.gdf, self.gdr = self.grip_f * self.skill, self.grip_r * self.skill
+
+    def set_state(self, soc):
+        """Update battery charge; recompute what depends on it."""
         self.soc = soc
-        self.wear = min(100.0, wear_pct)
-        self.grip = self.track_grip * (1.0 - WEAR_GRIP_LOSS * self.wear / 100.0)
-        # The grip the driver is prepared to use. The tyres still have self.grip;
-        # an imperfect driver simply leaves some of it unused.
-        self.grip_drv = self.grip * self.skill
         self.voc = self.ns * cell_ocv(soc)
         # Most power the battery can give at its terminals: current limit, with voltage sag.
         p_batt = self.i_max * (self.voc - self.i_max * self.r_int)
@@ -135,13 +148,13 @@ class Vehicle:
     def _axle_caps(self, v, ax, ay, d=None):
         """Grip available on each axle: (Fy front, Fy rear, Fx front, Fx rear) in N."""
         fl, fr, rl, rr = self.wheel_loads(v, ax, ay, d)
-        ls, fz0, g = self.ls, self.fz0, self.grip
+        ls, fz0 = self.ls, self.fz0
         rv = math.sqrt(v)
         lost = (self.bump_f * rv, self.bump_f * rv, self.bump_r * rv, self.bump_r * rv)
         # grip coefficient from the average load, applied to the load left after bump flutter
-        e = [max(0.3 * fz, fz - b) * max(0.4, 1.0 - ls * (fz / fz0 - 1.0)) * g
+        e = [max(0.3 * fz, fz - b) * max(0.4, 1.0 - ls * (fz / fz0 - 1.0))
              for fz, b in zip((fl, fr, rl, rr), lost)]
-        ef, er = e[0] + e[1], e[2] + e[3]
+        ef, er = (e[0] + e[1]) * self.grip_f, (e[2] + e[3]) * self.grip_r
         return self.mu_y0 * ef, self.mu_y0 * er, self.mu_x0 * ef, self.mu_x0 * er
 
     def _fx_left(self, v, ax, ay, d=None):
@@ -187,8 +200,8 @@ class Vehicle:
             fr = fr - bf if fr - bf > 0.3 * fr else 0.3 * fr
             rl = rl - br if rl - br > 0.3 * rl else 0.3 * rl
             rr = rr - br if rr - br > 0.3 * rr else 0.3 * rr
-        ef = (fl * e1 + fr * e2) * self.grip_drv
-        er = (rl * e3 + rr * e4) * self.grip_drv
+        ef = (fl * e1 + fr * e2) * self.gdf
+        er = (rl * e3 + rr * e4) * self.gdr
         may = m * abs(ay)
         uf = may * self.wf / (self.mu_y0 * ef) if ef > 0 else 9.0
         ur = may * (1 - self.wf) / (self.mu_y0 * er) if er > 0 else 9.0
@@ -341,11 +354,12 @@ class Vehicle:
         ur = math.hypot(fyr / cyr, fxr / cxr) if cyr > 0 else 0.0
         sgn = 1.0 if ay >= 0 else -1.0
         # heat generated where each axle's tyres slide against the road (W)
+        sl_f = (abs(fyf) * math.sin(sa_f) + abs(fxf) * sr_f) * v
+        sl_r = (abs(fyr) * math.sin(sa_r) + abs(fxr) * sr_r) * v
         rr_f, rr_r = self.crr * (fz[0] + fz[1]) * v, self.crr * (fz[2] + fz[3]) * v
         return dict(fz=fz, uf=uf, ur=ur, p=p_term, torque=torque,
                     roll=m * ay * self.h / self.k_roll,
                     slip_f=sgn * math.degrees(sa_f), slip_r=sgn * math.degrees(sa_r),
                     steer=math.degrees(self.L * kappa) + sgn * math.degrees(sa_f - sa_r),
                     slip_ratio=100 * max(sr_f, sr_r) * (1 if f_net >= 0 else -1),
-                    heat_f=(abs(fyf) * math.sin(sa_f) + abs(fxf) * sr_f) * v + rr_f,
-                    heat_r=(abs(fyr) * math.sin(sa_r) + abs(fxr) * sr_r) * v + rr_r)
+                    slide_f=sl_f, slide_r=sl_r, heat_f=sl_f + rr_f, heat_r=sl_r + rr_r)

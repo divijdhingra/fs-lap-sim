@@ -177,6 +177,8 @@ const TYRE_CHARTS = [
   { key: "slip_f", title: "Front tyre slip angle", unit: "deg", get: (c) => c.slip_f, d: 1, zero: true },
   { key: "slip_r", title: "Rear tyre slip angle", unit: "deg", get: (c) => c.slip_r, d: 1, zero: true },
   { key: "slip_ratio", title: "Wheel slip on the harder-worked axle (spinning +, braking −)", unit: "%", get: (c) => c.slip_ratio, d: 1, zero: true },
+  { key: "temp_f", title: "Front tyre temperature", unit: "°C", get: (c) => c.temp_f, d: 1 },
+  { key: "temp_r", title: "Rear tyre temperature", unit: "°C", get: (c) => c.temp_r, d: 1 },
 ];
 const RIDE_CHARTS = [
   { key: "roll_dyn", title: "Body roll (leaning right +, left −)", unit: "deg", get: (c) => c.roll_dyn, d: 2, zero: true },
@@ -290,7 +292,26 @@ function drawCharts() {
     };
     mk("lapt", "Lap time, s (lap 1 is from a standing start)", (r) => r.time);
     mk("soc", "Battery charge at the end of each lap, %", (r) => r.soc_end);
+    mk("ltf", "Front tyre temperature at the end of each lap, °C", (r) => r.temp_f);
+    mk("ltr", "Rear tyre temperature at the end of each lap, °C", (r) => r.temp_r);
+    mk("lwf", "Front tyre wear at the start of each lap, %", (r) => r.wear_f);
+    mk("lwr", "Rear tyre wear at the start of each lap, %", (r) => r.wear_r);
   }
+}
+
+// ---------- tyre panel ----------
+function drawTyres() {
+  const A = state.results.A, B = state.compare ? state.results.B : null;
+  if (!A || !A.tyres) return;
+  const t = A.tyres, tb = B && B.tyres, multi = A.lap_rows && A.lap_rows.length;
+  const tiles = [
+    ["Tyre temperature at finish, front / rear", (q) => `${fmt(q.temp_f_end, 0)} / ${fmt(q.temp_r_end, 0)}`, "°C", `Tread temperature when the run ends. It started at ${fmt(t.temp_start, 0)} °C and the tyres grip best at ${fmt(t.temp_opt, 0)} °C.`],
+    ["Average on the lap shown, front / rear", (q) => `${fmt(q.temp_f_mean, 0)} / ${fmt(q.temp_r_mean, 0)}`, "°C", "Average tread temperature over the lap in the charts. For a single lap this is the temperature used to set tyre grip."],
+    ["Grip available at that temperature, front / rear", (q) => `${fmt(q.grip_f, 1)} / ${fmt(q.grip_r, 1)}`, "%", "Share of full grip the tyres give at their average temperature. 100 means they are at their best temperature."],
+    ["Energy lost to sliding per lap, front / rear", (q) => `${fmt(q.slide_kj_f, 0)} / ${fmt(q.slide_kj_r, 0)}`, "kJ", "Work done by the tyres sliding against the road on the lap shown. This is what heats and wears them."],
+  ].concat(multi ? [["Tyre wear at finish, front / rear", (q) => `${fmt(q.wear_f, 1)} / ${fmt(q.wear_r, 1)}`, "%", "Share of tyre life used by the end of the run. Wear follows the energy lost to sliding, and rises faster when the tyres are hotter than their best temperature."]] : []);
+  $("tyreKpis").innerHTML = tiles.map(([l, f, u, tip]) => `<div class="kpi small" title="${tip}"><div class="l">${l}</div><div class="v">${f(t)}<small>${u}</small></div>` +
+    `<div class="d">${tb ? `<i class="sw b"></i>B ${f(tb)}` : ""}</div></div>`).join("");
 }
 
 // ---------- suspension and damper panel ----------
@@ -447,7 +468,7 @@ function drawValidation() {
   mk("valPower", L.p.slice(0, n), (r) => r.ch.p.slice(0, n), true);
 }
 
-function renderAll() { drawKpis(); drawCorner(); drawTable(); drawMap(); drawCharts(); drawRide(); drawValidation(); }
+function renderAll() { drawKpis(); drawCorner(); drawTable(); drawMap(); drawCharts(); drawRide(); drawTyres(); drawValidation(); }
 
 // ---------- running the simulation ----------
 function schedule(delay = 300) { clearTimeout(runTimer); runTimer = setTimeout(runNow, delay); }

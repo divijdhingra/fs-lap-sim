@@ -25,6 +25,14 @@ Assumptions
 - The slip at peak does not change with load.
 - Combined cornering and braking uses the friction ellipse for the force
   limit, and the pure-slip curves for the slip itself.
+
+Tyre temperature and wear (see the functions at the bottom)
+- Each axle's pair of tyres is one lump with a single temperature. It is
+  heated by a share of the sliding and rolling losses and cooled by the air.
+- Grip is best at the optimum temperature and falls away either side.
+- Wear grows with the energy dissipated by sliding, faster when too hot.
+- The thermal constants below are assumed placeholders, chosen so the default
+  car settles at about 65 to 70 C in endurance.
 """
 import math
 
@@ -68,3 +76,36 @@ class MagicCurve:
         f = u * _N
         i = int(f)
         return self.slip[i] + (self.slip[i + 1] - self.slip[i]) * (f - i)
+
+
+# ---- temperature and wear (assumed constants, see the notes at the top) ----
+HEAT_SHARE = 0.5        # share of the sliding and rolling losses that heats the tyre (rest heats the road)
+THERMAL_MASS = 4000.0   # J/K for the two tyres on one axle (tread and part of the carcass)
+COOL_0 = 5.0            # W/K lost to the air and road at rest, per axle
+COOL_V = 1.0            # extra W/K for each m/s of speed
+TEMP_WINDOW = 40.0      # C away from the optimum at which TEMP_LOSS of the grip is gone
+TEMP_LOSS = 0.10
+TEMP_FLOOR = 0.60       # grip never falls below this share because of temperature alone
+WEAR_GRIP_LOSS = 0.12   # grip lost at 100 % wear
+WEAR_REF_J_PER_KM = 105000.0   # sliding energy per axle per km at which wear equals the entered wear rate
+WEAR_HOT = 0.02         # extra wear for each C above the optimum temperature
+
+
+def temp_grip(temp, opt):
+    """Share of full grip available at a tyre temperature (1.0 at the optimum)."""
+    x = (temp - opt) / TEMP_WINDOW
+    return max(TEMP_FLOOR, 1.0 - TEMP_LOSS * x * x)
+
+
+def temp_step(temp, heat_w, v, air, dt):
+    """New temperature of one axle's tyres after dt seconds."""
+    cool = COOL_0 + COOL_V * v
+    # exact answer for constant heating over the step, so long steps cannot overshoot
+    target = air + HEAT_SHARE * heat_w / cool
+    return target + (temp - target) * math.exp(-cool * dt / THERMAL_MASS)
+
+
+def wear_added(rate_per_km, slide_j, temp_mean, opt):
+    """Wear (% of tyre life) added by slide_j joules of sliding on one axle."""
+    hot = 1.0 + WEAR_HOT * max(0.0, temp_mean - opt)
+    return rate_per_km * slide_j / WEAR_REF_J_PER_KM * hot
