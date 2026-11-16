@@ -12,7 +12,7 @@ Method (the standard quasi-steady-state lap time recipe):
 """
 import math
 from .vehicle import Vehicle, G, SOC_MIN
-from .ride import ride_replay
+from .ride import ride_replay, bump_metrics
 
 
 def _corner_limits(veh, ks, offs=None, base=None):
@@ -283,6 +283,8 @@ def simulate(car, cond, track):
     ride_ch, ride = ride_replay(veh, ch["t"], ch["v"], ch["ax"], ch["ay"])
     for q, w in enumerate(WHEELS):          # time-based load minus settled load, for display
         ride_ch["dfz_" + w] = [round(ride_ch["fzd_" + w][j] - _settled_loads(veh, ch, j)[q]) for j in range(len(ch["v"]))]
+    bm = bump_metrics(veh, sum(ch["v"]) / len(ch["v"]))
+    ride.update({k: (round(x, 3) if isinstance(x, float) else x) for k, x in bm.items()})
     ride["time_settled"] = round(fb_times[0], 3)
     ride["time_dynamic"] = round(fb_times[-1], 3)
     ride["time_cost"] = round(fb_times[-1] - fb_times[0], 3)

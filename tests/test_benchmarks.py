@@ -75,6 +75,14 @@ class Driver(unittest.TestCase):
         self.assertAlmostEqual(run("silverstone_gp", cond={"driver": 85})["v_max"], run("silverstone_gp")["v_max"], delta=0.1)
 
 
+class Packaging(unittest.TestCase):
+    def test_web_page_loads_every_engine_file(self):
+        import re
+        listed = set(re.findall(r'"(\w+\.py)"', open(os.path.join(ROOT, "web", "worker.js")).read()))
+        present = {f for f in os.listdir(os.path.join(ROOT, "fslap")) if f.endswith(".py")}
+        self.assertEqual(listed, present)
+
+
 class FastPath(unittest.TestCase):
     def test_fast_grip_routine_matches_reference(self):
         # _fx_left is a hand-inlined copy of wheel_loads + _axle_caps; keep them in step.

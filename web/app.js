@@ -310,6 +310,8 @@ function drawRide() {
   const tiles = [
     ["Time lost to body movement", (q) => signed(q.time_cost, 2), "s", "Lap time with the time-based tyre loads fed back into grip, minus lap time if the body settled instantly. For endurance this is for one flying lap."],
     ["Lap if the body settled instantly", (q) => fmtTime(q.time_settled), "s", "The lap time from the settled model alone, with no spring and damper effects."],
+    ["Tyre load flutter over bumps, front / rear", (q) => `${fmt(q.flutter_f, 1)} / ${fmt(q.flutter_r, 1)}`, "%", "Typical variation in tyre load caused by the road surface, as a share of the standing load, at this lap's average speed. Less is better: a tyre with a steady load grips more."],
+    ["Wheel hop frequency, front / rear", (q) => `${fmt(q.hop_f, 1)} / ${fmt(q.hop_r, 1)}`, "Hz", "How fast a wheel bounces between the tyre and the suspension spring."],
     ["Ride frequency, front / rear", (q) => `${fmt(q.freq_f, 2)} / ${fmt(q.freq_r, 2)}`, "Hz", "How fast the body bounces on its springs. FS cars with wings usually sit between 3 and 4.5 Hz."],
     ["Damping ratio, front / rear", (q) => `${fmt(q.zeta_f, 2)} / ${fmt(q.zeta_r, 2)}`, "", "1.0 is the least damping that stops bouncing with no overshoot. 0.6 to 0.8 is a common target."],
     ["Roll damping ratio", (q) => fmt(q.zeta_roll, 2), "", "Below 1 the body overshoots its lean on turn-in, then settles."],
@@ -321,6 +323,13 @@ function drawRide() {
   ];
   $("rideKpis").innerHTML = tiles.map(([l, f, u, tip]) => `<div class="kpi small" title="${tip}"><div class="l">${l}</div><div class="v">${f(r)}<small>${u}</small></div>` +
     `<div class="d">${rb ? `<i class="sw b"></i>B ${f(rb)}` : ""}</div></div>`).join("");
+  const sw = r.sweep, bc = $("bumpChart");
+  drawLineChart(bc, { n: sw.mult.length, dots: true, xlabels: true, dx: 1, xfmt: (t) => "×" + sw.mult[t],
+    series: [{ data: sw.var_f, colour: COL.A }].concat(rb ? [{ data: rb.sweep.var_f, colour: COL.B }] : []) });
+  const best = (q) => q.sweep.mult[q.sweep.var_f.indexOf(Math.min(...q.sweep.var_f))];
+  $("bumpNote").textContent = r.flutter_f > 0
+    ? `Lowest at ×${best(r)} of the current front damper rate` + (rb ? ` (B: ×${best(rb)})` : "") + ". Softer than that and the body and wheel bounce; stiffer and bumps are passed straight into the tyre."
+    : "Track roughness is 0, so there is no load flutter to show.";
   const labels = r.bins.map((b, i) => `${i ? r.bins[i - 1] : 0} to ${b}`).concat([`over ${r.bins[r.bins.length - 1]}`]);
   for (const [id, key] of [["histF", "hist_f"], ["histR", "hist_r"]])
     drawBars($(id), labels, [{ data: r[key], colour: COL.A }].concat(rb ? [{ data: rb[key], colour: COL.B }] : []), "%");

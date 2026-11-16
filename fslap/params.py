@@ -27,6 +27,8 @@ CAR_GROUPS = [
         P("tyre_ref_load", "Reference tyre load", "N", 750, 300, 1500, 10, "The tyre load at which the grip coefficients above apply. Roughly one corner's share of the car's weight."),
         P("load_sens", "Load sensitivity", "-", 0.15, 0, 0.4, 0.01, "How much grip coefficient is lost when tyre load doubles from the reference load. 0.15 means 15% less. This is why load transfer costs grip: the loaded tyre gains less than the unloaded tyre loses."),
         P("tyre_radius", "Tyre rolling radius", "m", 0.203, 0.18, 0.28, 0.001, "Radius of the loaded tyre. 0.203 m suits a 16 inch diameter tyre on a 10 inch wheel."),
+        P("tyre_kv", "Tyre vertical stiffness", "N/mm", 110, 40, 300, 5, "How stiff the tyre is as a spring when squashed vertically. It sets how the wheel bounces over bumps. It depends mainly on tyre pressure."),
+        P("bump_sens", "Grip lost to load flutter", "-", 0.3, 0, 1, 0.05, "When a tyre's load flutters over bumps it loses grip, because a tyre sheds force at once when load drops but needs time to build it back. This is the share of the load flutter that is lost as grip: 0.3 means a tyre whose load varies by 10% loses 3% of its grip. It is an assumed figure; real values come from tyre testing."),
         P("rolling_res", "Rolling resistance coefficient", "-", 0.02, 0.005, 0.05, 0.001, "Drag from the tyres deforming as they roll, as a fraction of the car's weight."),
     ]),
     ("Aerodynamics", [
@@ -69,6 +71,7 @@ COND_GROUP = ("Conditions", [
     P("power_cap", "Power limit", "kW", 80, 5, 80, 1, "Electrical power limit at the battery. The rules cap this at 80 kW. Teams turn it down in endurance to make the battery last."),
     P("tyre_wear", "Tyre wear at start", "%", 0, 0, 100, 1, "0 = new tyres, 100 = fully worn. Assumed to cut grip in a straight line down to 12% less at fully worn."),
     P("wear_rate", "Tyre wear rate", "%/km", 0.5, 0, 5, 0.1, "How quickly the tyres wear during endurance."),
+    P("roughness", "Track roughness", "10⁻⁶ m³", 4, 0, 256, 1, "How bumpy the surface is, on the ISO 8608 road scale. 0 = perfectly smooth, 4 = race circuit, 16 = good tarmac (car park or airfield in good condition), 64 = average public road, 256 = poor road."),
     P("track_grip", "Track grip", "%", 100, 40, 110, 1, "Scales all tyre grip. 100 = warm, dry tarmac. Roughly 80 = damp, 60 = wet."),
     P("air_temp", "Air temperature", "°C", 20, -5, 45, 1, "Warmer air is thinner, which reduces both downforce and drag."),
 ])

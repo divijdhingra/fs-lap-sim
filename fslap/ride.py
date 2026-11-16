@@ -25,6 +25,7 @@ Assumptions
 - Roll and pitch inertia come from assumed radii of gyration (KX, KY).
 """
 import math
+from .bumps import tyre_load_rms, hop_frequency
 
 G = 9.81
 KX, KY = 0.30, 0.60        # m, radii of gyration of the sprung mass in roll and pitch
@@ -43,6 +44,29 @@ def ride_metrics(veh):
     out["freq_roll"] = math.sqrt(veh.kroll_f + veh.kroll_r) / math.sqrt(ixx) / (2 * math.pi)
     out["zeta_roll"] = (veh.croll_f + veh.croll_r) / (2 * math.sqrt((veh.kroll_f + veh.kroll_r) * ixx))
     out["roll_gradient"] = math.degrees(veh.m * G * veh.h / (veh.kroll_f + veh.kroll_r))   # deg per g
+    return out
+
+
+SWEEP = [0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.65, 0.8, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0]
+
+
+def bump_metrics(veh, v_mean):
+    """Tyre load flutter over bumps at the lap's average speed, plus how it
+    would change with softer or stiffer dampers (the classic damper trade-off)."""
+    mu, kt, gd0 = veh.m_unsprung, veh.kt, veh.gd0
+    static_f, static_r = veh.m * G * veh.wf / 2, veh.m * G * (1 - veh.wf) / 2
+    rv = math.sqrt(max(v_mean, 0.1))
+    out = dict(
+        hop_f=hop_frequency(mu, veh.kw_f, kt), hop_r=hop_frequency(mu, veh.kw_r, kt),
+        flutter_f=100 * veh.sig_f * rv / static_f, flutter_r=100 * veh.sig_r * rv / static_r,
+        v_mean=v_mean,
+    )
+    zeta, var_f, var_r = [], [], []
+    for mult in SWEEP:
+        zeta.append(round(mult * veh.c_f / (2 * math.sqrt(veh.kw_f * veh.ms_f)), 3))
+        var_f.append(round(100 * tyre_load_rms(veh.ms_f, mu, veh.kw_f, mult * veh.c_f, kt, v_mean, gd0) / static_f, 2))
+        var_r.append(round(100 * tyre_load_rms(veh.ms_r, mu, veh.kw_r, mult * veh.c_r, kt, v_mean, gd0) / static_r, 2))
+    out["sweep"] = dict(mult=SWEEP, zeta=zeta, var_f=var_f, var_r=var_r)
     return out
 
 

@@ -6,6 +6,7 @@ acceleration. Fast transients (the car pitching and rolling on its springs
 and dampers as the driver turns in or hits a bump) are not simulated.
 """
 import math
+from .bumps import tyre_load_rms
 
 G = 9.81
 WEAR_GRIP_LOSS = 0.12      # grip lost at 100 % tyre wear (assumption)
@@ -66,6 +67,16 @@ class Vehicle:
         self.croll_r = self.c_r * self.tr ** 2 / 2
         self.k_roll = math.radians(self.kroll_f + self.kroll_r)      # N·m/deg, both axles
         self.rsd = self.kroll_f / (self.kroll_f + self.kroll_r)     # roll stiffness distribution, front share
+        # Road bumps: tyre load flutter grows with the square root of speed, so work
+        # it out once at 1 m/s for a front and a rear corner (see bumps.py).
+        self.kt = c["tyre_kv"] * 1000.0
+        self.gd0 = cond.get("roughness", 0) * 1e-6
+        self.ms_f = max(5.0, self.m * self.wf / 2 - self.m_unsprung)        # sprung mass on one front corner
+        self.ms_r = max(5.0, self.m * (1 - self.wf) / 2 - self.m_unsprung)
+        self.sig_f = tyre_load_rms(self.ms_f, self.m_unsprung, self.kw_f, self.c_f, self.kt, 1.0, self.gd0)
+        self.sig_r = tyre_load_rms(self.ms_r, self.m_unsprung, self.kw_r, self.c_r, self.kt, 1.0, self.gd0)
+        self.bump_f = c["bump_sens"] * self.sig_f     # grip-equivalent load lost per sqrt(m/s)
+        self.bump_r = c["bump_sens"] * self.sig_r
         self.p_cap = cond["power_cap"] * 1000.0
         self.track_grip = cond["track_grip"] / 100.0
         self.skill = min(1.0, max(0.3, cond.get("driver", 100) / 100.0))
@@ -122,7 +133,11 @@ class Vehicle:
         """Grip available on each axle: (Fy front, Fy rear, Fx front, Fx rear) in N."""
         fl, fr, rl, rr = self.wheel_loads(v, ax, ay, d)
         ls, fz0, g = self.ls, self.fz0, self.grip
-        e = [fz * max(0.4, 1.0 - ls * (fz / fz0 - 1.0)) * g for fz in (fl, fr, rl, rr)]
+        rv = math.sqrt(v)
+        lost = (self.bump_f * rv, self.bump_f * rv, self.bump_r * rv, self.bump_r * rv)
+        # grip coefficient from the average load, applied to the load left after bump flutter
+        e = [max(0.3 * fz, fz - b) * max(0.4, 1.0 - ls * (fz / fz0 - 1.0)) * g
+             for fz, b in zip((fl, fr, rl, rr), lost)]
         ef, er = e[0] + e[1], e[2] + e[3]
         return self.mu_y0 * ef, self.mu_y0 * er, self.mu_x0 * ef, self.mu_x0 * er
 
@@ -161,6 +176,14 @@ class Vehicle:
         if e2 < 0.4: e2 = 0.4
         if e3 < 0.4: e3 = 0.4
         if e4 < 0.4: e4 = 0.4
+        bf, br = self.bump_f, self.bump_r
+        if bf > 0.0 or br > 0.0:              # bumps: part of each tyre's load is lost to flutter
+            rv = math.sqrt(v)
+            bf *= rv; br *= rv
+            fl = fl - bf if fl - bf > 0.3 * fl else 0.3 * fl
+            fr = fr - bf if fr - bf > 0.3 * fr else 0.3 * fr
+            rl = rl - br if rl - br > 0.3 * rl else 0.3 * rl
+            rr = rr - br if rr - br > 0.3 * rr else 0.3 * rr
         ef = (fl * e1 + fr * e2) * self.grip_drv
         er = (rl * e3 + rr * e4) * self.grip_drv
         may = m * abs(ay)
