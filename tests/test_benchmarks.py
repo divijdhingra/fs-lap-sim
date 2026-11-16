@@ -57,5 +57,19 @@ class Benchmarks(unittest.TestCase):
             self.assertAlmostEqual(total, v.m * 9.81 + v.q_cl * speed ** 2, delta=1.0)
 
 
+class FastPath(unittest.TestCase):
+    def test_fast_grip_routine_matches_reference(self):
+        # _fx_left is a hand-inlined copy of wheel_loads + _axle_caps; keep them in step.
+        import math
+        v = Vehicle(default_car(), default_conditions())
+        for speed, ax, ay, d in ((12, 2, 9, None), (25, -14, -6, (30, -50, 80, -20)), (18, 0, 15, None), (30, -5, 0, (-400, 10, 5, 0))):
+            cyf, cyr, cxf, cxr = v._axle_caps(speed, ax, ay, d)
+            uf, ur = v.m * abs(ay) * v.wf / cyf, v.m * abs(ay) * (1 - v.wf) / cyr
+            xf, xr, ok = v._fx_left(speed, ax, ay, d)
+            self.assertAlmostEqual(xf, cxf * math.sqrt(max(0, 1 - uf * uf)), delta=0.01)
+            self.assertAlmostEqual(xr, cxr * math.sqrt(max(0, 1 - ur * ur)), delta=0.01)
+            self.assertEqual(ok, uf <= 1 and ur <= 1)
+
+
 if __name__ == "__main__":
     unittest.main()

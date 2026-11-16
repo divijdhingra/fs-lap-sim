@@ -12,7 +12,7 @@ const state = {
   setups: { A: null, B: null }, active: "A", compare: false,
   results: { A: null, B: null }, cursor: null, corner: 1, colour: "v",
 };
-let worker, reqId = 0, pending = {}, runTimer = null, mapGeom = null;
+let workers = {}, ready = 0, reqId = 0, pending = {}, runTimer = null, mapGeom = null;
 
 // ---------- helpers ----------
 const kmh = (v) => v * 3.6;
@@ -175,7 +175,7 @@ const RIDE_CHARTS = [
   { key: "roll_dyn", title: "Body roll (leaning right +, left −)", unit: "deg", get: (c) => c.roll_dyn, d: 2, zero: true },
   { key: "pitch", title: "Pitch (nose down under braking +, nose up under power −)", unit: "deg", get: (c) => c.pitch, d: 2, zero: true },
   { key: "dv_fl", title: "Front-left damper speed (compressing +, extending −)", unit: "mm/s", get: (c) => c.dv_fl, d: 0, zero: true },
-  { key: "dfz", title: "Front-left tyre load: time-based model minus settled model", unit: "N", get: (c) => c.fzd_fl.map((x, i) => x - c.fz_fl[i]), d: 0, zero: true },
+  { key: "dfz", title: "Front-left tyre load: time-based model minus settled model", unit: "N", get: (c) => c.dfz_fl, d: 0, zero: true },
 ];
 function niceTicks(lo, hi, n = 4) {
   const span = hi - lo || 1, step0 = span / n, mag = 10 ** Math.floor(Math.log10(step0));
@@ -308,6 +308,8 @@ function drawRide() {
   if (!A || !A.ride) return;
   const r = A.ride, rb = B && B.ride;
   const tiles = [
+    ["Time lost to body movement", (q) => signed(q.time_cost, 2), "s", "Lap time with the time-based tyre loads fed back into grip, minus lap time if the body settled instantly. For endurance this is for one flying lap."],
+    ["Lap if the body settled instantly", (q) => fmtTime(q.time_settled), "s", "The lap time from the settled model alone, with no spring and damper effects."],
     ["Ride frequency, front / rear", (q) => `${fmt(q.freq_f, 2)} / ${fmt(q.freq_r, 2)}`, "Hz", "How fast the body bounces on its springs. FS cars with wings usually sit between 3 and 4.5 Hz."],
     ["Damping ratio, front / rear", (q) => `${fmt(q.zeta_f, 2)} / ${fmt(q.zeta_r, 2)}`, "", "1.0 is the least damping that stops bouncing with no overshoot. 0.6 to 0.8 is a common target."],
     ["Roll damping ratio", (q) => fmt(q.zeta_roll, 2), "", "Below 1 the body overshoots its lean on turn-in, then settles."],
@@ -401,7 +403,7 @@ function runNow() {
   const want = state.compare ? ["A", "B"] : ["A"];
   const batch = ++reqId; pending = { batch, left: want.length, t0: performance.now() };
   const st = $("status"); st.textContent = "Simulating…"; st.classList.add("busy");
-  for (const k of want) worker.postMessage({ id: `${batch}:${k}`, req: { track: state.trackId, car: state.setups[k].car, cond: state.setups[k].cond } });
+  for (const k of want) workers[k].postMessage({ id: `${batch}:${k}`, req: { track: state.trackId, car: state.setups[k].car, cond: state.setups[k].cond } });
 }
 function onWorker(e) {
   const m = e.data, st = $("status");
@@ -478,6 +480,9 @@ function wire() {
 }
 
 wire();
-worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
-worker.onmessage = onWorker;
-worker.onerror = (e) => { $("status").textContent = "Could not start the physics engine: " + (e.message || "worker error"); };
+// One engine per setup, so A and B are simulated side by side rather than in turn.
+for (const k of ["A", "B"]) {
+  workers[k] = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+  workers[k].onmessage = (e) => { if (e.data.type === "ready") { if (++ready === 2) onWorker(e); } else onWorker(e); };
+  workers[k].onerror = (e) => { $("status").textContent = "Could not start the physics engine: " + (e.message || "worker error"); };
+}

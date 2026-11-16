@@ -15,29 +15,36 @@ from .vehicle import Vehicle, G, SOC_MIN
 from .ride import ride_replay
 
 
-def _corner_limits(veh, ks):
-    memo = {}
-    out = []
-    for k in ks:
-        key = round(abs(k), 4)
-        v = memo.get(key)
-        if v is None:
-            v = memo[key] = veh.corner_speed(key)
-        out.append(v)
-    return out
+def _corner_limits(veh, ks, offs=None, base=None):
+    """Corner speed limit at every track point. offs: optional per-point tyre
+    load offsets from the spring and damper replay; base: the limits without
+    offsets, used as starting guesses."""
+    if offs is None:
+        memo = {}
+        out = []
+        for k in ks:
+            key = round(abs(k), 4)
+            v = memo.get(key)
+            if v is None:
+                v = memo[key] = veh.corner_speed(key)
+            out.append(v)
+        return out
+    return [veh.corner_speed(k, offs[i], base[i]) if abs(k) > 1e-4 else base[i] for i, k in enumerate(ks)]
 
 
-def _passes(veh, ks, vlim, ds, v_start, v_end=None):
+def _passes(veh, ks, vlim, ds, v_start, v_end=None, offs=None):
     """Forward and backward passes over an open stretch of len(ks) points.
     Returns speeds at each point."""
     n = len(ks)
     v = list(vlim)
     v[0] = min(v[0], v_start)
     ax_max, ax_min = veh.ax_max, veh.ax_min
+    if offs is None:
+        offs = [None] * n
     two_ds = 2 * ds
     for i in range(n - 1):
         vi = v[i]
-        a, _ = ax_max(max(vi, 0.3), ks[i])
+        a, _ = ax_max(max(vi, 0.3), ks[i], offs[i])
         vn = math.sqrt(max(0.0, vi * vi + two_ds * a))
         if vn < v[i + 1]:
             v[i + 1] = vn
@@ -47,36 +54,37 @@ def _passes(veh, ks, vlim, ds, v_start, v_end=None):
         vi = v[i]
         if v[i - 1] <= vi:
             continue
-        a = ax_min(vi, ks[i])
+        a = ax_min(vi, ks[i], offs[i])
         vp = math.sqrt(vi * vi - two_ds * a)
         if vp < v[i - 1]:
             v[i - 1] = vp
     return v
 
 
-def _solve_lap(veh, track, vlim, standing):
+def _solve_lap(veh, track, vlim, standing, offs=None):
     """Speeds for one lap. Returns a list one longer than the track for closed
     tracks (the last entry is the start line again)."""
     ks, ds = track["k"], track["ds"]
     n = len(ks)
     if not track["closed"]:
         v0 = 0.0 if standing else min(track.get("entry_speed", 10.0), vlim[0])
-        return _passes(veh, ks, vlim, ds, v0)
+        return _passes(veh, ks, vlim, ds, v0, None, offs)
     # Closed lap. The slowest corner on the lap is always taken at its limit
     # speed, so start the passes there and go once round.
     j = min(range(n), key=vlim.__getitem__)
     rk = ks[j:] + ks[:j] + [ks[j]]
     rv = vlim[j:] + vlim[:j] + [vlim[j]]
-    fly = _passes(veh, rk, rv, ds, rv[0], rv[0])
+    ro = None if offs is None else offs[j:] + offs[:j] + [offs[j]]
+    fly = _passes(veh, rk, rv, ds, rv[0], rv[0], ro)
     fly = fly[n - j:n] + fly[:n - j]             # rotate back so index 0 = start line
     if not standing:
         return fly + [fly[0]]
     # Standing start: accelerate from rest, joining the flying lap once up to speed.
     kk, vv = ks + [ks[0]], fly + [fly[0]]
-    return _passes(veh, kk, vv, ds, 0.0)
+    return _passes(veh, kk, vv, ds, 0.0, None, None if offs is None else offs + [offs[0]])
 
 
-def _integrate(veh, track, v):
+def _integrate(veh, track, v, offs=None):
     """Turn a speed trace into time, accelerations, energy and display channels."""
     ks, ds = track["k"], track["ds"]
     nseg = len(v) - 1
@@ -90,7 +98,7 @@ def _integrate(veh, track, v):
         dt = ds / vm
         ax = (v1 * v1 - v0 * v0) / (2 * ds)
         k = ks[i % len(ks)]
-        st = veh.point_state(vm, k, ax)
+        st = veh.point_state(vm, k, ax, offs[i % len(ks)] if offs is not None else None)
         p = st["p"]
         cur = veh.battery_current(p)
         q_ah += cur * dt / 3600.0
@@ -170,6 +178,61 @@ def _round_ch(ch):
     return {k: [round(x, dec.get(k, 0)) for x in a] for k, a in ch.items()}
 
 
+FEEDBACK_ITERS = 4     # times the lap is re-solved with updated transient tyre loads
+FEEDBACK_RELAX = 0.5   # how much of each update is taken (damps the back-and-forth)
+SMOOTH_M = 1.0         # m, light smoothing of the load differences along the track
+WHEELS = ("fl", "fr", "rl", "rr")
+
+
+def _settled_loads(veh, ch, j):
+    return veh.wheel_loads(ch["v"][j], ch["ax"][j] * G, ch["ay"][j] * G)
+
+
+def _dynamic_offsets(veh, track, standing):
+    """Couple the lap solver to the spring and damper model.
+
+    1. Solve the lap with settled tyre loads.
+    2. Replay it through the spring and damper model to get the real,
+       time-varying tyre loads.
+    3. Note, at every point on the track, how far each tyre's load is from its
+       settled value, and solve the lap again with those differences applied.
+    Repeat a few times. Returns the load differences, the corner speed limits
+    without them, and the lap time after each round (first entry = settled).
+    """
+    ks = track["k"]
+    base = _corner_limits(veh, ks)
+    offs = None
+    times = []
+    for it in range(FEEDBACK_ITERS + 1):
+        vlim = base if offs is None else _corner_limits(veh, ks, offs, base)
+        res = _integrate(veh, track, _solve_lap(veh, track, vlim, standing, offs), offs)
+        times.append(res["time"])
+        if it == FEEDBACK_ITERS:
+            final = (vlim, res)
+            break
+        ch = res["ch"]
+        rch, _ = ride_replay(veh, ch["t"], ch["v"], ch["ax"], ch["ay"])
+        last = len(ch["v"]) - 1
+        new = []
+        for i in range(len(ks)):
+            j = min(i, last)
+            st = _settled_loads(veh, ch, j)
+            d = tuple(rch["fzd_" + w][j] - st[q] for q, w in enumerate(WHEELS))
+            if offs is not None:
+                d = tuple(o + FEEDBACK_RELAX * (x - o) for o, x in zip(offs[i], d))
+            new.append(d)
+        # Light smoothing along the track (about 3 m). Braking points shift a little
+        # between rounds; without this the sharp load changes there never settle.
+        w = max(1, int(round(SMOOTH_M / 2 / track["ds"])))
+        n = len(new)
+        if track["closed"]:
+            sm = [tuple(sum(new[(i + q) % n][c] for q in range(-w, w + 1)) / (2 * w + 1) for c in range(4)) for i in range(n)]
+        else:
+            sm = [tuple(sum(new[min(n - 1, max(0, i + q))][c] for q in range(-w, w + 1)) / (2 * w + 1) for c in range(4)) for i in range(n)]
+        offs = sm
+    return offs, final, times
+
+
 def simulate(car, cond, track):
     """Run one event. Returns a plain dict ready to be turned into JSON."""
     veh = Vehicle(car, cond)
@@ -186,15 +249,22 @@ def simulate(car, cond, track):
     shown = None
     finished = True
     vlim = None; vlim_wear = None
+    # Tyre load differences caused by body movement on the springs and dampers.
+    # For multi-lap events they are worked out once, on a flying lap.
+    offs, fb_final, fb_times = _dynamic_offsets(veh, track, standing and laps == 1)
     for lap in range(1, laps + 1):
         if veh.soc <= SOC_MIN:
             finished = False
             break
         # Corner speed limits only change with tyre wear; refresh every 2 % of wear.
-        if vlim is None or abs(veh.wear - vlim_wear) >= 2.0:
-            vlim = _corner_limits(veh, track["k"]); vlim_wear = veh.wear
-        v = _solve_lap(veh, track, vlim, standing and lap == 1)
-        res = _integrate(veh, track, v)
+        if laps == 1:
+            vlim, res = fb_final                 # already solved in the feedback loop
+        else:
+            if vlim is None:
+                vlim = fb_final[0]; vlim_wear = veh.wear
+            elif abs(veh.wear - vlim_wear) >= 2.0:
+                vlim = _corner_limits(veh, track["k"], offs, _corner_limits(veh, track["k"])); vlim_wear = veh.wear
+            res = _integrate(veh, track, _solve_lap(veh, track, vlim, standing and lap == 1, offs), offs)
         p_avail = veh.p_elec / 1000.0
         soc_end = veh.soc - res["q_ah"] / veh.cap_ah
         total += res["time"]; e_out += res["e_out_kwh"]; e_regen += res["e_regen_kwh"]
@@ -211,6 +281,12 @@ def simulate(car, cond, track):
     # Replay the lap through the spring and damper model (see ride.py).
     veh.set_state(soc0, wear0)
     ride_ch, ride = ride_replay(veh, ch["t"], ch["v"], ch["ax"], ch["ay"])
+    for q, w in enumerate(WHEELS):          # time-based load minus settled load, for display
+        ride_ch["dfz_" + w] = [round(ride_ch["fzd_" + w][j] - _settled_loads(veh, ch, j)[q]) for j in range(len(ch["v"]))]
+    ride["time_settled"] = round(fb_times[0], 3)
+    ride["time_dynamic"] = round(fb_times[-1], 3)
+    ride["time_cost"] = round(fb_times[-1] - fb_times[0], 3)
+    ride["feedback_times"] = [round(x, 3) for x in fb_times]
     out = dict(
         track_id=track["id"], kind=track["kind"], laps=laps, ds=ds, shown_lap=shown_lap,
         time=round(total, 3), lap_time=round(shown["time"], 3), finished=finished,

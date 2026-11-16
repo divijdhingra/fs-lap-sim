@@ -94,7 +94,7 @@ class Vehicle:
             return 0.0
         return min(self.f_torque, self.p_wheel / max(v, 0.5))
 
-    def wheel_loads(self, v, ax, ay):
+    def wheel_loads(self, v, ax, ay, d=None):
         """Vertical load on each tyre (N): FL, FR, RL, RR. ay > 0 means turning left."""
         m, h = self.m, self.h
         down = self.q_cl * v * v
@@ -107,25 +107,65 @@ class Vehicle:
         df = max(-fzf / 2, min(fzf / 2, df))               # a tyre cannot carry negative load
         dr = max(-fzr / 2, min(fzr / 2, dr))
         # turning left (ay > 0) loads the right-hand tyres
-        return fzf / 2 - df, fzf / 2 + df, fzr / 2 - dr, fzr / 2 + dr
+        fl, fr, rl, rr = fzf / 2 - df, fzf / 2 + df, fzr / 2 - dr, fzr / 2 + dr
+        if d is not None:
+            # d = how far each tyre's load is from its settled value at this point on
+            # the track, because the body is still moving on its springs and dampers
+            fl, fr, rl, rr = max(0.0, fl + d[0]), max(0.0, fr + d[1]), max(0.0, rl + d[2]), max(0.0, rr + d[3])
+        return fl, fr, rl, rr
 
-    def _axle_caps(self, v, ax, ay):
+    def _axle_caps(self, v, ax, ay, d=None):
         """Grip available on each axle: (Fy front, Fy rear, Fx front, Fx rear) in N."""
-        fl, fr, rl, rr = self.wheel_loads(v, ax, ay)
+        fl, fr, rl, rr = self.wheel_loads(v, ax, ay, d)
         ls, fz0, g = self.ls, self.fz0, self.grip
         e = [fz * max(0.4, 1.0 - ls * (fz / fz0 - 1.0)) * g for fz in (fl, fr, rl, rr)]
         ef, er = e[0] + e[1], e[2] + e[3]
         return self.mu_y0 * ef, self.mu_y0 * er, self.mu_x0 * ef, self.mu_x0 * er
 
-    def _fx_left(self, v, ax, ay):
+    def _fx_left(self, v, ax, ay, d=None):
         """Longitudinal grip left on each axle after cornering has taken its share
-        (friction ellipse). Returns (front, rear, feasible)."""
-        cyf, cyr, cxf, cxr = self._axle_caps(v, ax, ay)
-        may = self.m * abs(ay)
-        uf = may * self.wf / cyf if cyf > 0 else 9.0
-        ur = may * (1 - self.wf) / cyr if cyr > 0 else 9.0
+        (friction ellipse). Returns (front, rear, feasible).
+
+        This is the same physics as wheel_loads + _axle_caps, written out in one
+        piece because it is called hundreds of thousands of times per lap."""
+        m = self.m
+        down = self.q_cl * v * v
+        long_t = m * ax * self.h / self.L
+        fzf = m * G * self.wf + down * self.ab - long_t
+        fzr = m * G * (1 - self.wf) + down * (1 - self.ab) + long_t
+        if fzf < 0.0: fzf = 0.0
+        if fzr < 0.0: fzr = 0.0
+        roll_m = m * ay * self.h
+        df = roll_m * self.rsd / self.tf
+        dr = roll_m * (1 - self.rsd) / self.tr
+        hf, hr = 0.5 * fzf, 0.5 * fzr
+        if df > hf: df = hf
+        elif df < -hf: df = -hf
+        if dr > hr: dr = hr
+        elif dr < -hr: dr = -hr
+        fl, fr, rl, rr = hf - df, hf + df, hr - dr, hr + dr
+        if d is not None:
+            fl += d[0]; fr += d[1]; rl += d[2]; rr += d[3]
+            if fl < 0.0: fl = 0.0
+            if fr < 0.0: fr = 0.0
+            if rl < 0.0: rl = 0.0
+            if rr < 0.0: rr = 0.0
+        ls, inv = self.ls, 1.0 / self.fz0
+        c = 1.0 + ls
+        e1 = c - ls * fl * inv; e2 = c - ls * fr * inv; e3 = c - ls * rl * inv; e4 = c - ls * rr * inv
+        if e1 < 0.4: e1 = 0.4
+        if e2 < 0.4: e2 = 0.4
+        if e3 < 0.4: e3 = 0.4
+        if e4 < 0.4: e4 = 0.4
+        ef = (fl * e1 + fr * e2) * self.grip
+        er = (rl * e3 + rr * e4) * self.grip
+        may = m * abs(ay)
+        uf = may * self.wf / (self.mu_y0 * ef) if ef > 0 else 9.0
+        ur = may * (1 - self.wf) / (self.mu_y0 * er) if er > 0 else 9.0
         ok = uf <= 1.0 and ur <= 1.0
-        return (cxf * math.sqrt(max(0.0, 1 - uf * uf)), cxr * math.sqrt(max(0.0, 1 - ur * ur)), ok)
+        xf = self.mu_x0 * ef * math.sqrt(1 - uf * uf) if uf < 1.0 else 0.0
+        xr = self.mu_x0 * er * math.sqrt(1 - ur * ur) if ur < 1.0 else 0.0
+        return xf, xr, ok
 
     def resist(self, v):
         return self.q_cd * v * v + self.rr
@@ -134,7 +174,7 @@ class Vehicle:
         d = self.drive
         return xr if d == "RWD" else (xf + xr if d == "AWD" else xf)
 
-    def ax_max(self, v, kappa):
+    def ax_max(self, v, kappa, d=None):
         """Best forward acceleration (m/s²) at speed v on a curve of curvature kappa.
         Returns (ax, feasible). feasible is False if the car cannot hold the
         corner at this speed at all."""
@@ -144,9 +184,9 @@ class Vehicle:
         m = self.m
         ax = 0.0
         for _ in range(12):            # load transfer depends on ax, so iterate to settle
-            xf, xr, ok = self._fx_left(v, ax, ay)
+            xf, xr, ok = self._fx_left(v, ax, ay, d)
             new = (min(self._traction(xf, xr), fm) - res) / m
-            if abs(new - ax) < 0.01:
+            if abs(new - ax) < 0.04:
                 ax = new
                 break
             ax = 0.5 * (ax + new)
@@ -155,54 +195,59 @@ class Vehicle:
         # Accelerating shifts load off the front tyres. If that leaves the front
         # unable to hold the corner, ease off until it can.
         coast = -res / m
-        xf, xr, ok0 = self._fx_left(v, 0.0, ay)
+        xf, xr, ok0 = self._fx_left(v, 0.0, ay, d)
         if ok0 and min(self._traction(xf, xr), fm) >= res:
             lo = 0.0                       # can at least hold this speed
-        elif self._fx_left(v, coast, ay)[2]:
+        elif self._fx_left(v, coast, ay, d)[2]:
             lo = coast
         else:
             return coast, False
         hi = ax
         for _ in range(8):
             mid = 0.5 * (lo + hi)
-            xf, xr, ok = self._fx_left(v, mid, ay)
+            xf, xr, ok = self._fx_left(v, mid, ay, d)
             if ok and (min(self._traction(xf, xr), fm) - res) / m >= mid:
                 lo = mid
             else:
                 hi = mid
         return lo, True
 
-    def ax_min(self, v, kappa):
+    def ax_min(self, v, kappa, d=None):
         """Hardest braking (negative, m/s²) at speed v on a curve of curvature kappa."""
         ay = v * v * kappa
         res = self.resist(v)
         ax = -10.0
         b = self.bias
         for _ in range(12):
-            xf, xr, _ok = self._fx_left(v, ax, ay)
+            xf, xr, _ok = self._fx_left(v, ax, ay, d)
             fb = min(xf / b, xr / (1 - b))
             new = -(fb + res) / self.m
-            if abs(new - ax) < 0.01:
+            if abs(new - ax) < 0.04:
                 ax = new
                 break
             ax = 0.5 * (ax + new)
         return ax
 
-    def corner_speed(self, kappa):
-        """Highest steady speed (m/s) the car can hold on a curve of curvature kappa."""
+    def corner_speed(self, kappa, d=None, guess=None):
+        """Highest steady speed (m/s) the car can hold on a curve of curvature kappa.
+        guess: a nearby answer to start the search from (saves time)."""
         kappa = abs(kappa)
-        hi = self.v_top
+        top = self.v_top
         if kappa < 1e-5:
-            return hi
+            return top
         def ok(v):
             # can hold the corner at constant speed: grip for the cornering force
             # with enough left over on the driven tyres to cancel drag
-            xf, xr, feas = self._fx_left(v, 0.0, v * v * kappa)
+            xf, xr, feas = self._fx_left(v, 0.0, v * v * kappa, d)
             return feas and min(self._traction(xf, xr), self.motor_force(v)) >= self.resist(v)
-        if ok(hi):
-            return hi
-        lo = 0.0
-        for _ in range(22):
+        lo, hi, n = 0.0, top, 22
+        if guess is not None:
+            a, b = 0.90 * guess, min(top, 1.08 * guess)
+            if ok(a) and not ok(b):
+                lo, hi, n = a, b, 9
+        if hi >= top and ok(top):
+            return top
+        for _ in range(n):
             mid = 0.5 * (lo + hi)
             if ok(mid):
                 lo = mid
@@ -216,12 +261,12 @@ class Vehicle:
         disc = self.voc * self.voc - 4 * self.r_int * p_term
         return (self.voc - math.sqrt(max(0.0, disc))) / (2 * self.r_int)
 
-    def point_state(self, v, kappa, ax):
+    def point_state(self, v, kappa, ax, d=None):
         """Everything worth showing at one point on the track."""
         m = self.m
         ay = v * v * kappa
-        fz = self.wheel_loads(v, ax, ay)
-        cyf, cyr, cxf, cxr = self._axle_caps(v, ax, ay)
+        fz = self.wheel_loads(v, ax, ay, d)
+        cyf, cyr, cxf, cxr = self._axle_caps(v, ax, ay, d)
         f_net = m * ax + self.resist(v)           # force the tyres must supply along the car
         d = self.drive
         p_term = 0.0; torque = 0.0; regen = 0.0

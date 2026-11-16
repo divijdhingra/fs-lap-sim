@@ -61,10 +61,23 @@ class Ride(unittest.TestCase):
         self.assertAlmostEqual(m["freq_f"], math.sqrt(35000 / corner) / (2 * math.pi), places=3)
         self.assertTrue(2.5 < m["freq_f"] < 4.5)          # usual FS range with wings
 
-    def test_dampers_do_not_change_lap_time(self):
-        a = json.loads(api.run(json.dumps(dict(track="fsuk_autocross"))))["time"]
-        b = json.loads(api.run(json.dumps(dict(track="fsuk_autocross", car={"damper_f": 5000}))))["time"]
-        self.assertEqual(a, b)
+    def test_feedback_settles(self):
+        # Re-solving the lap with updated tyre loads should home in on one answer.
+        r = json.loads(api.run(json.dumps(dict(track="fsuk_autocross"))))["ride"]
+        t = r["feedback_times"]
+        self.assertLess(abs(t[-1] - t[-2]), 0.06)
+        self.assertGreater(r["time_cost"], 0)             # body movement costs time, never gains it
+
+    def test_badly_underdamped_car_is_slower(self):
+        base = json.loads(api.run(json.dumps(dict(track="fsuk_autocross"))))["time"]
+        soft = json.loads(api.run(json.dumps(dict(track="fsuk_autocross", car={"damper_f": 200, "damper_r": 200}))))["time"]
+        self.assertGreater(soft, base + 0.05)
+
+    def test_steady_cornering_unaffected_by_dampers(self):
+        # On a constant circle the body is settled, so dampers should not matter.
+        a = json.loads(api.run(json.dumps(dict(track="skidpad"))))["time"]
+        b = json.loads(api.run(json.dumps(dict(track="skidpad", car={"damper_f": 400, "damper_r": 400}))))["time"]
+        self.assertAlmostEqual(a, b, delta=0.02)
 
 
 if __name__ == "__main__":
