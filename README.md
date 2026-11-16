@@ -15,7 +15,7 @@ An interactive lap time simulator for **electric Formula Student cars**. Enter t
 
 - **Events:** 75 m acceleration, skidpad, an FS UK sprint lap, the 22 km FS UK endurance (with battery energy tracked lap by lap), and flying laps of the Silverstone and Hockenheim Grand Prix circuits.
 - **Car inputs:** mass, wheelbase, track widths, centre of gravity, tyre grip, load sensitivity and slip at peak grip (Pacejka Magic Formula curves), downforce and drag, motor torque/power/speed, gear ratio, driven wheels, battery capacity/voltage/resistance/current limit, regen, brake bias, spring rates, anti-roll bars and damper rates. The defaults are a typical mid-field electric FS car, not a specific team's car.
-- **Conditions:** driver model (cornering, braking and traction grip used, lift and coast), track roughness, battery charge, power limit, tyre temperature and wear, track grip (dry to wet) and air temperature.
+- **Conditions:** driver model (cornering, braking and traction grip used, lift and coast), track roughness, battery charge, power limit, tyre temperature and wear, battery and motor temperature, track grip (dry to wet) and air temperature.
 - **Suspension and dampers:** a time-based replay of body roll, pitch and heave, road bumps, damper speed histograms, and their effect on lap time.
 - **Setup optimiser:** searches gear ratio, spring rates and damper rates for the selected event and loads the result into Setup B.
 - **Points calculator:** runs the four dynamic events and scores them with the Formula Student formulas.
@@ -36,6 +36,7 @@ The lowest of those speeds at each point is the fastest possible lap for a perfe
 | --- | --- |
 | `fslap/params.py` | Every input, its unit, default and explanation |
 | `fslap/tyre.py` | Pacejka Magic Formula tyre curves (slip angle, wheel slip, cornering drag), tyre temperature and wear |
+| `fslap/thermal.py` | Battery and motor heating, and the power cut-back when hot |
 | `fslap/vehicle.py` | Car model: tyres, aero, load transfer, motor, battery, brakes |
 | `fslap/ride.py` | Time-based spring and damper replay: roll, pitch, heave, damper speeds |
 | `fslap/bumps.py` | Road bumps: quarter-car model and ISO 8608 road roughness |

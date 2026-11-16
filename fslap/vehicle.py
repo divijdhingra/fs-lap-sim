@@ -7,6 +7,7 @@ and dampers as the driver turns in or hits a bump) are not simulated.
 """
 import math
 from .bumps import tyre_load_rms
+from .thermal import batt_thermal_mass, batt_derate, motor_derate
 from .tyre import MagicCurve, C_LAT, E_LAT, C_LONG, E_LONG, WEAR_GRIP_LOSS, temp_grip, CAMBER_OPT, CAMBER_KY, CAMBER_KX, CAMBER_FLOOR
 
 G = 9.81
@@ -55,6 +56,11 @@ class Vehicle:
         self.r_int = c["batt_res"]
         self.i_max = c["batt_imax"]
         self.regen_w = c["regen_kw"] * 1000.0
+        # Heat: thermal mass and cooling of the pack and of the motor with its inverter (see thermal.py)
+        self.batt_mass_jk = batt_thermal_mass(c["batt_kwh"])
+        self.batt_cool, self.motor_cool = c.get("batt_cool", 15.0), c.get("motor_cool", 30.0)
+        self.batt_temp = cond.get("batt_temp", 25.0)        # temperatures now (they move during a lap)
+        self.motor_temp = cond.get("motor_temp", 40.0)
         self.bias = c["brake_bias"] / 100.0
         # Springs, anti-roll bars and dampers, all expressed at the wheel.
         self.kw_f, self.kw_r = c["wheel_rate_f"] * 1000.0, c["wheel_rate_r"] * 1000.0     # N/m
@@ -132,12 +138,15 @@ class Vehicle:
         self.soc = soc
         self.voc = self.ns * cell_ocv(soc)
         # Most power the battery can give at its terminals: current limit, with voltage sag.
-        p_batt = self.i_max * (self.voc - self.i_max * self.r_int)
+        # A hot pack has its current limit cut back; a hot motor its torque.
+        self.batt_cut, self.motor_cut = batt_derate(self.batt_temp), motor_derate(self.motor_temp)
+        i_max = self.i_max * self.batt_cut
+        p_batt = i_max * (self.voc - i_max * self.r_int)
         self.p_elec = max(0.0, min(self.p_cap, p_batt)) if soc > SOC_MIN else 0.0
         # Motor top speed scales with available voltage.
         w_max = self.rpm_nom * 2 * math.pi / 60.0 * self.voc / self.v_nom
         self.v_top = w_max * self.r / self.gr
-        self.f_torque = self.t_peak * self.gr / self.r      # wheel force at peak torque
+        self.f_torque = self.t_peak * self.motor_cut * self.gr / self.r      # wheel force at peak torque
         self.p_wheel = min(self.p_motor, self.p_elec * self.eff)
 
     # ---- forces ---------------------------------------------------------

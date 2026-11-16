@@ -46,6 +46,7 @@ CAR_GROUPS = [
         P("motor_rpm", "Motor top speed at nominal voltage", "rpm", 6000, 2000, 22000, 50, "Highest motor speed when the battery is at its nominal voltage. It scales with battery voltage, so top speed falls as the battery empties."),
         P("gear_ratio", "Gear ratio", "-", 3.8, 1, 16, 0.05, "Motor turns per wheel turn. Higher gives more push at the wheels but a lower top speed."),
         P("drive_eff", "Drivetrain efficiency", "%", 88, 60, 99, 0.5, "Share of battery electrical power that reaches the road as push, after inverter, motor and transmission losses."),
+        P("motor_cool", "Motor and inverter cooling", "W/K", 30, 0, 300, 1, "Heat the motor and inverter cooling loop sheds for each degree above the air temperature. A bigger radiator or more airflow raises it."),
     ]),
     ("Battery", [
         P("batt_kwh", "Battery capacity", "kWh", 6.5, 2, 12, 0.1, "Usable energy stored in the accumulator when full."),
@@ -53,6 +54,7 @@ CAR_GROUPS = [
         P("batt_res", "Pack internal resistance", "Ω", 0.20, 0.02, 1, 0.01, "Resistance inside the battery. It makes voltage sag under load and turns some energy into heat."),
         P("batt_imax", "Maximum discharge current", "A", 170, 50, 500, 5, "Most current the pack is allowed to supply. With low voltage (low charge) this limits power below 80 kW."),
         P("regen_kw", "Maximum regen power", "kW", 20, 0, 80, 1, "Most electrical power recovered into the battery while braking (regenerative braking). 0 switches regen off."),
+        P("batt_cool", "Battery cooling", "W/K", 15, 0, 200, 1, "Heat the pack sheds for each degree it is above the air temperature. About 15 for a fan-cooled pack, more with ducted air or liquid cooling, 0 for a sealed box."),
     ]),
     ("Brakes", [
         P("brake_bias", "Brake bias (front)", "%", 65, 40, 85, 0.5, "Share of the total braking force sent to the front tyres. The best value is where front and rear tyres reach their grip limit together."),
@@ -82,6 +84,8 @@ COND_GROUP = ("Conditions", [
     P("lift_coast", "Lift and coast before braking", "m", 0, 0, 40, 1, "The driver lifts off the throttle this many metres before each braking point and lets the car roll. Costs a little lap time and saves energy, which is how teams make the battery last in endurance."),
     P("soc_start", "Battery charge at start", "%", 100, 5, 100, 1, "State of charge when the run starts. Lower charge means lower voltage, less power and a lower top speed."),
     P("power_cap", "Power limit", "kW", 80, 5, 80, 1, "Electrical power limit at the battery. The rules cap this at 80 kW. Teams turn it down in endurance to make the battery last."),
+    P("batt_temp", "Battery temperature at start", "°C", 25, 0, 60, 1, "Pack temperature when the run starts. The rules stop the car at 60 °C, so the controller cuts the current limit in a straight line from full at 50 °C to nothing at 60 °C."),
+    P("motor_temp", "Motor temperature at start", "°C", 40, 0, 120, 1, "Motor and inverter temperature when the run starts. Torque is cut in a straight line from full at 100 °C to 30% at 120 °C."),
     P("tyre_wear", "Tyre wear at start", "%", 0, 0, 100, 1, "0 = new tyres, 100 = fully worn. Assumed to cut grip in a straight line down to 12% less at fully worn."),
     P("tyre_temp", "Tyre temperature at start", "°C", 60, 0, 120, 1, "Tread temperature when the run starts. Formula Student bans tyre warmers, so a car straight out of the pits is near air temperature; 60 means the tyres have already done a warm-up lap or two."),
     P("wear_rate", "Tyre wear rate", "%/km", 0.5, 0, 5, 0.1, "How quickly the tyres wear during endurance when worked as hard as the default car on the FS UK layout. Tyres that slide more (more slip angle, more wheelspin, harder braking) wear faster in proportion to the energy lost in sliding, and faster again when hotter than their best temperature. Front and rear wear separately."),

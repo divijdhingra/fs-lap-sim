@@ -180,6 +180,10 @@ const TYRE_CHARTS = [
   { key: "temp_f", title: "Front tyre temperature", unit: "°C", get: (c) => c.temp_f, d: 1 },
   { key: "temp_r", title: "Rear tyre temperature", unit: "°C", get: (c) => c.temp_r, d: 1 },
 ];
+const HEAT_CHARTS = [
+  { key: "batt_temp", title: "Battery temperature", unit: "°C", get: (c) => c.batt_temp, d: 1 },
+  { key: "motor_temp", title: "Motor and inverter temperature", unit: "°C", get: (c) => c.motor_temp, d: 1 },
+];
 const RIDE_CHARTS = [
   { key: "roll_dyn", title: "Body roll (leaning right +, left −)", unit: "deg", get: (c) => c.roll_dyn, d: 2, zero: true },
   { key: "pitch", title: "Pitch (nose down under braking +, nose up under power −)", unit: "deg", get: (c) => c.pitch, d: 2, zero: true },
@@ -278,6 +282,7 @@ function drawCharts() {
   drawSet($("charts"), CHARTS);
   drawSet($("rideCharts"), RIDE_CHARTS);
   drawSet($("tyreCharts"), TYRE_CHARTS);
+  drawSet($("heatCharts"), HEAT_CHARTS);
   $("chartLegend").innerHTML = both ? `<span><i class="sw a"></i>Setup A</span><span><i class="sw b"></i>Setup B</span>` : "";
 
   // endurance lap-by-lap
@@ -292,6 +297,9 @@ function drawCharts() {
     };
     mk("lapt", "Lap time, s (lap 1 is from a standing start)", (r) => r.time);
     mk("soc", "Battery charge at the end of each lap, %", (r) => r.soc_end);
+    mk("lbt", "Battery temperature at the end of each lap, °C", (r) => r.batt_temp);
+    mk("lmt", "Motor and inverter temperature at the end of each lap, °C", (r) => r.motor_temp);
+    mk("lpa", "Battery power available at the start of each lap, kW", (r) => r.p_avail);
     mk("ltf", "Front tyre temperature at the end of each lap, °C", (r) => r.temp_f);
     mk("ltr", "Rear tyre temperature at the end of each lap, °C", (r) => r.temp_r);
     mk("lwf", "Front tyre wear at the start of each lap, %", (r) => r.wear_f);
@@ -312,6 +320,21 @@ function drawTyres() {
   ].concat(multi ? [["Tyre wear at finish, front / rear", (q) => `${fmt(q.wear_f, 1)} / ${fmt(q.wear_r, 1)}`, "%", "Share of tyre life used by the end of the run. Wear follows the energy lost to sliding, and rises faster when the tyres are hotter than their best temperature."]] : []);
   $("tyreKpis").innerHTML = tiles.map(([l, f, u, tip]) => `<div class="kpi small" title="${tip}"><div class="l">${l}</div><div class="v">${f(t)}<small>${u}</small></div>` +
     `<div class="d">${tb ? `<i class="sw b"></i>B ${f(tb)}` : ""}</div></div>`).join("");
+}
+
+// ---------- battery and motor heat panel ----------
+function drawHeat() {
+  const A = state.results.A, B = state.compare ? state.results.B : null;
+  if (!A || !A.heat) return;
+  const h = A.heat, hb = B && B.heat;
+  const tiles = [
+    ["Battery temperature, start / finish", (q) => `${fmt(q.batt_start, 0)} / ${fmt(q.batt_end, 0)}`, "°C", "Pack temperature at the start and end of the run. The current limit is cut from 50 °C and the rules stop the car at 60 °C."],
+    ["Motor temperature, start / peak", (q) => `${fmt(q.motor_start, 0)} / ${fmt(q.motor_peak, 0)}`, "°C", "Motor and inverter temperature at the start and at its hottest. Torque is cut from 100 °C."],
+    ["Lowest battery current limit", (q) => fmt(q.batt_cut_min, 0), "%", "Share of the normal current limit the controller allowed at the hottest point of the run. 100 means the pack never got hot enough to be cut back. Applied at the start of each lap."],
+    ["Lowest motor torque limit", (q) => fmt(q.motor_cut_min, 0), "%", "Share of peak torque the controller allowed at the hottest point of the run. 100 means no cut-back. Applied at the start of each lap."],
+  ];
+  $("heatKpis").innerHTML = tiles.map(([l, f, u, tip]) => `<div class="kpi small" title="${tip}"><div class="l">${l}</div><div class="v">${f(h)}<small>${u}</small></div>` +
+    `<div class="d">${hb ? `<i class="sw b"></i>B ${f(hb)}` : ""}</div></div>`).join("");
 }
 
 // ---------- suspension and damper panel ----------
@@ -469,7 +492,7 @@ function drawValidation() {
   mk("valPower", L.p.slice(0, n), (r) => r.ch.p.slice(0, n), true);
 }
 
-function renderAll() { drawKpis(); drawCorner(); drawTable(); drawMap(); drawCharts(); drawRide(); drawTyres(); drawValidation(); }
+function renderAll() { drawKpis(); drawCorner(); drawTable(); drawMap(); drawCharts(); drawRide(); drawTyres(); drawHeat(); drawValidation(); }
 
 // ---------- running the simulation ----------
 function schedule(delay = 300) { clearTimeout(runTimer); runTimer = setTimeout(runNow, delay); }
