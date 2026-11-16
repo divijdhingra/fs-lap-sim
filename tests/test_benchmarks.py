@@ -27,7 +27,8 @@ class Benchmarks(unittest.TestCase):
 
     def test_skidpad_matches_hand_calculation(self):
         # No wings, no load sensitivity: speed = sqrt(mu * g * R), a textbook result.
-        r = run("skidpad", {"cl_a": 0, "load_sens": 0, "mu_y": 1.4, "cd_a": 0.01, "rolling_res": 0.001, "peak_slip_angle": 3}, {"roughness": 0})
+        r = run("skidpad", {"cl_a": 0, "load_sens": 0, "mu_y": 1.4, "cd_a": 0.01, "rolling_res": 0.001, "peak_slip_angle": 3,
+                             "camber_f": -1.5, "camber_r": -1.5, "camber_gain": 1}, {"roughness": 0})   # tyres held at their best lean
         expected = 2 * 3.14159265 * 9.125 / (1.4 * 9.81 * 9.125) ** 0.5
         self.assertAlmostEqual(r["time"], expected, delta=0.06)
 

@@ -109,3 +109,10 @@ def wear_added(rate_per_km, slide_j, temp_mean, opt):
     """Wear (% of tyre life) added by slide_j joules of sliding on one axle."""
     hot = 1.0 + WEAR_HOT * max(0.0, temp_mean - opt)
     return rate_per_km * slide_j / WEAR_REF_J_PER_KM * hot
+
+
+# ---- camber (assumed constants) ----
+CAMBER_OPT = -1.5      # deg, lean (top of the tyre towards the inside of the corner) at which cornering grip is best
+CAMBER_KY = 0.006      # share of cornering grip lost per deg^2 away from that
+CAMBER_KX = 0.004      # share of drive and brake grip lost per deg^2 of lean either way (best upright)
+CAMBER_FLOOR = 0.7

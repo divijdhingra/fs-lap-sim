@@ -64,6 +64,13 @@ CAR_GROUPS = [
         P("arb_r", "Rear anti-roll bar", "N·m/deg", 0, 0, 1500, 10, "Extra roll resistance from a rear anti-roll bar. More at the rear adds oversteer."),
         P("damper_f", "Front damper rate", "N·s/m", 2000, 100, 12000, 50, "Damper force at the wheel for each metre per second of suspension movement. Dampers do not change how far the body finally moves, only how quickly it gets there and whether it overshoots."),
         P("damper_r", "Rear damper rate", "N·s/m", 2000, 100, 12000, 50, "Damper force per metre per second at one rear wheel."),
+        P("rc_f", "Front roll centre height", "m", 0.03, 0, 0.15, 0.005, "The roll centre is the point the body rolls about at that axle, set by the angles of the suspension arms. The higher it is, the more of the cornering load goes straight through the arms into the tyres instead of through the springs, so the body rolls less and the load reaches the tyres sooner."),
+        P("rc_r", "Rear roll centre height", "m", 0.05, 0, 0.15, 0.005, "Roll centre height at the rear axle. Raising one end's roll centre moves load transfer to that end, like stiffening its anti-roll bar: higher at the rear adds oversteer."),
+        P("anti_dive", "Anti-dive (front)", "%", 20, 0, 100, 5, "Share of the braking load transfer that the front suspension arms carry directly instead of the springs. 100 means the nose does not dive at all under braking. It changes how far and how fast the body pitches, not the settled tyre loads."),
+        P("anti_squat", "Anti-squat (rear)", "%", 20, 0, 100, 5, "Share of the acceleration load transfer that the rear suspension arms carry directly, which stops the tail squatting under power."),
+        P("camber_f", "Front static camber", "deg", -1.5, -5, 1, 0.1, "How far the front tyres lean when the car is standing still. Negative means the tops lean in towards the car. In a corner the body rolls and tips the outside tyre upright, so some negative camber keeps it gripping. Too much hurts braking and traction, where an upright tyre is best."),
+        P("camber_r", "Rear static camber", "deg", -1.0, -5, 1, 0.1, "Static lean of the rear tyres. Negative means the tops lean in."),
+        P("camber_gain", "Camber recovered in roll", "deg/deg", 0.5, 0, 1, 0.05, "How much of each degree of body roll the suspension arms cancel out by tilting the wheel back. 0 = the tyres tip over fully with the body, 1 = the tyres stay at their static camber however much the body rolls."),
         P("unsprung", "Unsprung mass per corner", "kg", 10, 3, 25, 0.5, "Mass of one wheel, tyre, upright and brake: the parts that are not carried by the springs."),
     ]),
 ]
@@ -88,11 +95,11 @@ PRESETS = [
     dict(id="typical", name="Typical FS electric car", car={}, cond={},
          note="A generic mid-field electric Formula Student car. Not any specific team's car."),
     dict(id="logged", name="Fitted to the logged FS UK stint",
-         car=dict(motor_torque=80, drive_eff=74, regen_kw=0, mu_x=1.3, mu_y=1.3),
+         car=dict(motor_torque=80, drive_eff=74, regen_kw=0, mu_x=1.32, mu_y=1.32),
          cond=dict(power_cap=46, driver=79, driver_brake=48, driver_power=79),
          note="Read from the log: 46 kW peak power, no regen, and a constant push of about 2000 N at full "
               "throttle (so the car was torque limited, not power limited). "
-              "Fitted: tyre grip 1.3 with a driver using 79% of it in corners and on corner exit but only "
+              "Fitted: tyre grip 1.32 with a driver using 79% of it in corners and on corner exit but only "
               "48% under braking, which reproduces the best lap time and the logged braking of 0.75 g; "
               "74% drivetrain efficiency, which reproduces the energy used per lap. "
               "Assumed: everything else, including mass (300 kg with driver). The true mass would change "

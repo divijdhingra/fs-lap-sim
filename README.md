@@ -20,7 +20,7 @@ An interactive lap time simulator for **electric Formula Student cars**. Enter t
 - **Setup optimiser:** searches gear ratio, spring rates and damper rates for the selected event and loads the result into Setup B.
 - **Points calculator:** runs the four dynamic events and scores them with the Formula Student formulas.
 - **Validation:** compares the simulation with a logged FS UK endurance lap, with error figures that update as you change the car.
-- **Per-corner view:** click a corner on the map for entry, minimum and exit speed, cornering and braking g, tyre loads, grip used on each axle, tyre slip angles, steering angle, body roll, motor torque and battery power, for setup A and B.
+- **Per-corner view:** click a corner on the map for entry, minimum and exit speed, cornering and braking g, tyre loads, grip used on each axle, tyre slip angles, steering angle, tyre camber, body roll, motor torque and battery power, for setup A and B.
 
 ## How it works
 
@@ -47,21 +47,21 @@ The lowest of those speeds at each point is the fastest possible lap for a perfe
 
 ## Assumptions
 
-Fixed driving line. The driver uses a set share of tyre grip in corners, under braking and on corner exit (100% = perfect), applied evenly round the lap, and can lift and coast a set distance before each braking point; mistakes and lap to lap variation are not modelled. Flat track. Springs and dampers act on lap time through tyre load: the lap is solved, replayed through time on its springs and dampers (`fslap/ride.py`), and solved again with the tyre loads from that replay, four times over. Differences under about 0.03 s are within this method's rounding. All load transfer is assumed to pass through springs and dampers. Road bumps use a quarter-car model per corner and the ISO 8608 roughness scale to get tyre load flutter; the grip lost is an assumed share of that flutter (0.3 by default) pending tyre test data. In the body replay dampers are linear, kerbs are not modelled, inputs build with a 0.08 s lag, and roll and pitch inertia use assumed radii of gyration (0.30 m and 0.60 m). Roll centres at ground level. Tyres are a peak grip coefficient with linear load sensitivity and a friction ellipse for combined cornering and braking; no tyre temperature, camber or toe. Tyre wear is a linear grip loss up to 12% when fully worn. All-wheel drive splits torque in proportion to axle grip. Regen keeps the set brake balance and is off below 5 km/h. Battery limits are held constant within a lap and updated between laps. The endurance driver change is not timed.
+Fixed driving line. Suspension geometry is entered as roll centre heights, anti-dive, anti-squat and camber rather than arm positions, and the camber and temperature grip curves are assumed placeholders, not fitted tyre data. The driver uses a set share of tyre grip in corners, under braking and on corner exit (100% = perfect), applied evenly round the lap, and can lift and coast a set distance before each braking point; mistakes and lap to lap variation are not modelled. Flat track. Springs and dampers act on lap time through tyre load: the lap is solved, replayed through time on its springs and dampers (`fslap/ride.py`), and solved again with the tyre loads from that replay, four times over. Differences under about 0.03 s are within this method's rounding. All load transfer is assumed to pass through springs and dampers. Road bumps use a quarter-car model per corner and the ISO 8608 roughness scale to get tyre load flutter; the grip lost is an assumed share of that flutter (0.3 by default) pending tyre test data. In the body replay dampers are linear, kerbs are not modelled, inputs build with a 0.08 s lag, and roll and pitch inertia use assumed radii of gyration (0.30 m and 0.60 m). Roll centres at ground level. Tyres are a peak grip coefficient with linear load sensitivity and a friction ellipse for combined cornering and braking; no tyre temperature, camber or toe. Tyre wear is a linear grip loss up to 12% when fully worn. All-wheel drive splits torque in proportion to axle grip. Regen keeps the set brake balance and is off below 5 km/h. Battery limits are held constant within a lap and updated between laps. The endurance driver change is not timed.
 
 ## Validation so far
 
 | Check | Simulator (default car) | Reference |
 | --- | --- | --- |
-| 75 m acceleration | 4.11 s | about 3.3 s (best AWD) to 4.5 s for competitive electric FS cars |
-| Skidpad | 5.08 s | about 4.7 to 5.3 s |
+| 75 m acceleration | 4.12 s | about 3.3 s (best AWD) to 4.5 s for competitive electric FS cars |
+| Skidpad | 5.14 s | about 4.7 to 5.3 s |
 | Skidpad, no wings, constant grip | within 0.06 s | textbook v = sqrt(mu g R) |
 | Spring and damper replay, settled values | identical tyre loads and roll angle | the steady model |
 | Spring and damper replay, overshoot after a sudden input | within 2% | textbook exp(-pi z / sqrt(1 - z^2)) |
 | Damper feedback into lap time | settles within 0.06 s between rounds; steady skidpad unchanged by dampers; a badly underdamped car is slower | expected behaviour |
 | Bump model gain | within 3% of a step-by-step simulation; exact mass x acceleration limit at low frequency | independent time-stepping, hand calculation |
 | Best damper setting over bumps | damping ratio about 0.4 | textbook road-holding optimum of roughly 0.3 to 0.5 |
-| FS UK flying lap, preset fitted to a logged stint | lap time +0.3%, energy per lap -1.9%, peak braking 0.78 g against 0.75 g (all fitted); speed trace 3.6 km/h RMS, correlation 0.97 (not fitted) | logged GPS and power, fastest of 13 laps |
+| FS UK flying lap, preset fitted to a logged stint | lap time +0.4%, energy per lap -1.8%, peak braking 0.78 g against 0.75 g (all fitted); speed trace 3.6 km/h RMS, correlation 0.97 (not fitted) | logged GPS and power, fastest of 13 laps |
 | FS UK flying lap, default car and perfect driver | about 19% quicker than the log | same |
 
 The default car is generic, so its absolute lap times are not a prediction for any real car. The fitted preset shows the model can reproduce a real lap once the inputs are right, with one known weakness: the simulated driver's peak cornering is 1.04 g against 1.17 g logged, because the real driver reaches the limit in only a few corners while the simulated driver uses the same share of grip in every corner. The validation panel on the FS UK Endurance tab shows all of this live.

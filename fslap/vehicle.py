@@ -7,7 +7,7 @@ and dampers as the driver turns in or hits a bump) are not simulated.
 """
 import math
 from .bumps import tyre_load_rms
-from .tyre import MagicCurve, C_LAT, E_LAT, C_LONG, E_LONG, WEAR_GRIP_LOSS, temp_grip
+from .tyre import MagicCurve, C_LAT, E_LAT, C_LONG, E_LONG, WEAR_GRIP_LOSS, temp_grip, CAMBER_OPT, CAMBER_KY, CAMBER_KX, CAMBER_FLOOR
 
 G = 9.81
 SOC_MIN = 0.05             # battery treated as empty below this
@@ -69,6 +69,22 @@ class Vehicle:
         self.croll_r = self.c_r * self.tr ** 2 / 2
         self.k_roll = math.radians(self.kroll_f + self.kroll_r)      # N·m/deg, both axles
         self.rsd = self.kroll_f / (self.kroll_f + self.kroll_r)     # roll stiffness distribution, front share
+        # Suspension geometry. The roll centre of an axle is the point the body
+        # rolls about at that axle. Cornering force acting at roll centre height
+        # goes straight through the suspension links into the tyres; only the
+        # rest (CoG height above the roll axis) rolls the body on its springs.
+        self.rc_f, self.rc_r = c.get("rc_f", 0.0), c.get("rc_r", 0.0)
+        self.h_roll = self.h - (self.wf * self.rc_f + (1 - self.wf) * self.rc_r)
+        # lateral load transfer on each axle per m/s² of cornering (N per m/s²)
+        self.lt_f = self.m * (self.wf * self.rc_f + self.h_roll * self.rsd) / self.tf
+        self.lt_r = self.m * ((1 - self.wf) * self.rc_r + self.h_roll * (1 - self.rsd)) / self.tr
+        self.roll_per_ay = self.m * self.h_roll / self.k_roll        # deg of roll per m/s²
+        self.anti_dive = min(1.0, max(0.0, c.get("anti_dive", 0.0) / 100.0))
+        self.anti_squat = min(1.0, max(0.0, c.get("anti_squat", 0.0) / 100.0))
+        # Camber: how far the tyres lean. Negative = tops lean in towards the car.
+        self.cam_f, self.cam_r = c.get("camber_f", 0.0), c.get("camber_r", 0.0)
+        # body roll tips the tyres over; camber gain in the linkage gives part of it back
+        self.cam_roll = self.roll_per_ay * (1.0 - min(1.0, max(0.0, c.get("camber_gain", 0.0))))
         # Road bumps: tyre load flutter grows with the square root of speed, so work
         # it out once at 1 m/s for a front and a rear corner (see bumps.py).
         self.kt = c["tyre_kv"] * 1000.0
@@ -138,9 +154,8 @@ class Vehicle:
         long_t = m * ax * h / self.L                       # longitudinal load transfer
         fzf = max(0.0, m * G * self.wf + down * self.ab - long_t)
         fzr = max(0.0, m * G * (1 - self.wf) + down * (1 - self.ab) + long_t)
-        roll_m = m * ay * h                                 # lateral load transfer moment
-        df = roll_m * self.rsd / self.tf
-        dr = roll_m * (1 - self.rsd) / self.tr
+        df = ay * self.lt_f                                 # lateral load transfer, each axle
+        dr = ay * self.lt_r
         df = max(-fzf / 2, min(fzf / 2, df))               # a tyre cannot carry negative load
         dr = max(-fzr / 2, min(fzr / 2, dr))
         # turning left (ay > 0) loads the right-hand tyres
@@ -160,8 +175,28 @@ class Vehicle:
         # grip coefficient from the average load, applied to the load left after bump flutter
         e = [max(0.3 * fz, fz - b) * max(0.4, 1.0 - ls * (fz / fz0 - 1.0))
              for fz, b in zip((fl, fr, rl, rr), lost)]
-        ef, er = (e[0] + e[1]) * self.grip_f, (e[2] + e[3]) * self.grip_r
-        return self.mu_y0 * ef, self.mu_y0 * er, self.mu_x0 * ef, self.mu_x0 * er
+        cy, cx = self._camber_factors(ay)
+        gf, gr = self.grip_f, self.grip_r
+        return (self.mu_y0 * (e[0] * cy[0] + e[1] * cy[1]) * gf, self.mu_y0 * (e[2] * cy[2] + e[3] * cy[3]) * gr,
+                self.mu_x0 * (e[0] * cx[0] + e[1] * cx[1]) * gf, self.mu_x0 * (e[2] * cx[2] + e[3] * cx[3]) * gr)
+
+    def _camber_factors(self, ay):
+        """Share of grip each tyre keeps at its current lean: (cornering x4, drive/brake x4), FL FR RL RR.
+
+        In a corner the body rolls and tips both tyres' tops towards the outside.
+        Static negative camber leans the outside tyre the right way (into the
+        corner) and the inside tyre the wrong way."""
+        pr = abs(ay) * self.cam_roll
+        cy, cx = [], []
+        for cam in (self.cam_f, self.cam_r):
+            out, ins = cam + pr, -cam + pr            # lean measured towards the outside of the corner
+            yo = max(CAMBER_FLOOR, 1 - CAMBER_KY * (out - CAMBER_OPT) ** 2)
+            yi = max(CAMBER_FLOOR, 1 - CAMBER_KY * (ins - CAMBER_OPT) ** 2)
+            xo = max(CAMBER_FLOOR, 1 - CAMBER_KX * out * out)
+            xi = max(CAMBER_FLOOR, 1 - CAMBER_KX * ins * ins)
+            if ay >= 0: cy += [yi, yo]; cx += [xi, xo]      # turning left: right-hand tyres are outside
+            else: cy += [yo, yi]; cx += [xo, xi]
+        return cy, cx
 
     def _fx_left(self, v, ax, ay, d=None):
         """Longitudinal grip left on each axle after cornering has taken its share
@@ -176,9 +211,8 @@ class Vehicle:
         fzr = m * G * (1 - self.wf) + down * (1 - self.ab) + long_t
         if fzf < 0.0: fzf = 0.0
         if fzr < 0.0: fzr = 0.0
-        roll_m = m * ay * self.h
-        df = roll_m * self.rsd / self.tf
-        dr = roll_m * (1 - self.rsd) / self.tr
+        df = ay * self.lt_f
+        dr = ay * self.lt_r
         hf, hr = 0.5 * fzf, 0.5 * fzr
         if df > hf: df = hf
         elif df < -hf: df = -hf
@@ -206,14 +240,37 @@ class Vehicle:
             fr = fr - bf if fr - bf > 0.3 * fr else 0.3 * fr
             rl = rl - br if rl - br > 0.3 * rl else 0.3 * rl
             rr = rr - br if rr - br > 0.3 * rr else 0.3 * rr
-        ef = (fl * e1 + fr * e2) * self.gdf
-        er = (rl * e3 + rr * e4) * self.gdr
+        # camber: grip each tyre keeps at its current lean (same sums as _camber_factors)
+        pr = (ay if ay >= 0 else -ay) * self.cam_roll
+        ky, kx, opt, flo = CAMBER_KY, CAMBER_KX, CAMBER_OPT, CAMBER_FLOOR
+        cam = self.cam_f
+        go = cam + pr; gi = pr - cam
+        yo = 1 - ky * (go - opt) * (go - opt); yi = 1 - ky * (gi - opt) * (gi - opt)
+        xo = 1 - kx * go * go; xi = 1 - kx * gi * gi
+        if yo < flo: yo = flo
+        if yi < flo: yi = flo
+        if xo < flo: xo = flo
+        if xi < flo: xi = flo
+        fl *= e1; fr *= e2; rl *= e3; rr *= e4
+        if ay >= 0: efy = fl * yi + fr * yo; efx = fl * xi + fr * xo
+        else: efy = fl * yo + fr * yi; efx = fl * xo + fr * xi
+        cam = self.cam_r
+        go = cam + pr; gi = pr - cam
+        yo = 1 - ky * (go - opt) * (go - opt); yi = 1 - ky * (gi - opt) * (gi - opt)
+        xo = 1 - kx * go * go; xi = 1 - kx * gi * gi
+        if yo < flo: yo = flo
+        if yi < flo: yi = flo
+        if xo < flo: xo = flo
+        if xi < flo: xi = flo
+        if ay >= 0: ery = rl * yi + rr * yo; erx = rl * xi + rr * xo
+        else: ery = rl * yo + rr * yi; erx = rl * xo + rr * xi
+        gdf, gdr = self.gdf, self.gdr
         may = m * abs(ay)
-        uf = may * self.wf / (self.mu_y0 * ef) if ef > 0 else 9.0
-        ur = may * (1 - self.wf) / (self.mu_y0 * er) if er > 0 else 9.0
+        uf = may * self.wf / (self.mu_y0 * efy * gdf) if efy > 0 else 9.0
+        ur = may * (1 - self.wf) / (self.mu_y0 * ery * gdr) if ery > 0 else 9.0
         ok = uf <= 1.0 and ur <= 1.0
-        xf = self.mu_x0 * ef * math.sqrt(1 - uf * uf) if uf < 1.0 else 0.0
-        xr = self.mu_x0 * er * math.sqrt(1 - ur * ur) if ur < 1.0 else 0.0
+        xf = self.mu_x0 * efx * gdf * math.sqrt(1 - uf * uf) if uf < 1.0 else 0.0
+        xr = self.mu_x0 * erx * gdr * math.sqrt(1 - ur * ur) if ur < 1.0 else 0.0
         # Cornering drag: a tyre running at a slip angle pushes back along the
         # direction of travel with (sideways force) x sin(slip angle).
         if may > 0.0:
@@ -364,7 +421,7 @@ class Vehicle:
         sl_r = (abs(fyr) * math.sin(sa_r) + abs(fxr) * sr_r) * v
         rr_f, rr_r = self.crr * (fz[0] + fz[1]) * v, self.crr * (fz[2] + fz[3]) * v
         return dict(fz=fz, uf=uf, ur=ur, p=p_term, torque=torque,
-                    roll=m * ay * self.h / self.k_roll,
+                    roll=ay * self.roll_per_ay, cam_fo=self.cam_f + abs(ay) * self.cam_roll, cam_ro=self.cam_r + abs(ay) * self.cam_roll,
                     slip_f=sgn * math.degrees(sa_f), slip_r=sgn * math.degrees(sa_r),
                     steer=math.degrees(self.L * kappa) + sgn * math.degrees(sa_f - sa_r),
                     slip_ratio=100 * max(sr_f, sr_r) * (1 if f_net >= 0 else -1),

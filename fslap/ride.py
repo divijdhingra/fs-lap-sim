@@ -15,8 +15,12 @@ Three body motions are simulated:
 Assumptions
 - The replay does not feed back into lap time. It is an analysis of the lap,
   not a re-run of it.
-- Roll centres and pitch centre at ground level (same as the lap solver, so
-  the settled values agree exactly with it).
+- Roll centres: the share of cornering force that acts at roll centre height
+  reaches the tyres at once through the suspension links; only the rest rolls
+  the body on its springs. Anti-dive and anti-squat do the same for braking
+  and acceleration: that share of the load transfer goes through the links
+  and does not pitch the body. Settled tyre loads agree exactly with the lap
+  solver. Jacking (the links lifting the body in a corner) is ignored.
 - Dampers are linear: the same rate in bump and rebound, at all speeds.
 - Tyres are rigid vertically and the road is perfectly smooth, so only
   driver-induced movement is seen, not bumps or kerbs.
@@ -43,7 +47,7 @@ def ride_metrics(veh):
     ixx = veh.m_sprung * KX ** 2
     out["freq_roll"] = math.sqrt(veh.kroll_f + veh.kroll_r) / math.sqrt(ixx) / (2 * math.pi)
     out["zeta_roll"] = (veh.croll_f + veh.croll_r) / (2 * math.sqrt((veh.kroll_f + veh.kroll_r) * ixx))
-    out["roll_gradient"] = math.degrees(veh.m * G * veh.h / (veh.kroll_f + veh.kroll_r))   # deg per g
+    out["roll_gradient"] = math.degrees(veh.m * G * veh.h_roll / (veh.kroll_f + veh.kroll_r))   # deg per g
     return out
 
 
@@ -88,10 +92,14 @@ def ride_replay(veh, t, v, ax_g, ay_g, lag=INPUT_LAG):
     # start settled at the first sample
     ax, ay = ax_g[0] * G, ay_g[0] * G
     dn = veh.q_cl * v[0] ** 2
-    ff, fr = dn * veh.ab - m * ax * h / L, dn * (1 - veh.ab) + m * ax * h / L
+    hr, ad, asq = veh.h_roll, veh.anti_dive, veh.anti_squat
+    geo_f, geo_r = m * veh.wf * veh.rc_f / tf, m * (1 - veh.wf) * veh.rc_r / tr     # link load transfer per m/s²
+    lt0 = m * ax * h / L
+    gf, gr = (-ad * lt0 if ax < 0 else 0.0), (asq * lt0 if ax > 0 else 0.0)          # carried by the links
+    ff, fr = dn * veh.ab - lt0 - gf, dn * (1 - veh.ab) + lt0 - gr
     df_, dr_ = ff / (2 * kf), fr / (2 * kr)
     th, z = (df_ - dr_) / L, -(df_ * b + dr_ * a) / L
-    phi = m * ay * h / (Kf + Kr)
+    phi = m * ay * hr / (Kf + Kr)
     thd = zd = phid = 0.0
 
     n = len(t)
@@ -115,17 +123,21 @@ def ride_replay(veh, t, v, ax_g, ay_g, lag=INPUT_LAG):
             v_f, v_r = -zd + a * thd, -zd - b * thd              # compression speed, m/s
             ff = 2 * (kf * d_f + cf * v_f)                       # axle force change from springs + dampers
             fr = 2 * (kr * d_r + cr * v_r)
-            zdd = (ff + fr - dn) / ms
-            thdd = (-m * ax * h - a * ff + b * fr + a * dnf - b * dnr) / iyy
-            phidd = (m * ay * h - (Kf + Kr) * phi - (Cf + Cr) * phid) / ixx
+            # share of the braking / acceleration load transfer carried by the links
+            lt0 = m * ax * h / L
+            gf = -ad * lt0 if ax < 0 else 0.0                    # anti-dive holds the nose up
+            gr = asq * lt0 if ax > 0 else 0.0                    # anti-squat holds the tail up
+            zdd = (ff + fr + gf + gr - dn) / ms
+            thdd = (-m * ax * h - a * (ff + gf) + b * (fr + gr) + a * dnf - b * dnr) / iyy
+            phidd = (m * ay * hr - (Kf + Kr) * phi - (Cf + Cr) * phid) / ixx
             zd += zdd * hs; thd += thdd * hs; phid += phidd * hs
             z += zd * hs; th += thd * hs; phi += phid * hs
         d_f, d_r = -z + a * th, -z - b * th
         v_f, v_r = -zd + a * thd, -zd - b * thd
         ff = 2 * (kf * d_f + cf * v_f); fr = 2 * (kr * d_r + cr * v_r)
-        lt_f = (Kf * phi + Cf * phid) / tf                        # lateral load transfer, front axle
-        lt_r = (Kr * phi + Cr * phid) / tr
-        axf, axr = max(0.0, wf_static + ff), max(0.0, wr_static + fr)
+        lt_f = (Kf * phi + Cf * phid) / tf + geo_f * ay           # lateral load transfer, front axle
+        lt_r = (Kr * phi + Cr * phid) / tr + geo_r * ay
+        axf, axr = max(0.0, wf_static + ff + gf), max(0.0, wr_static + fr + gr)
         lt_f = max(-axf / 2, min(axf / 2, lt_f)); lt_r = max(-axr / 2, min(axr / 2, lt_r))
         dv = (v_f - phid * tf / 2, v_f + phid * tf / 2, v_r - phid * tr / 2, v_r + phid * tr / 2)
         ch["roll_dyn"].append(round(math.degrees(phi), 3))

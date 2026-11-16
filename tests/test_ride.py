@@ -29,8 +29,31 @@ class Ride(unittest.TestCase):
 
     def test_roll_settles_at_hand_calculated_angle(self):
         veh, ch, _ = step(default_car(), ay=1.0)
-        expected = math.degrees(veh.m * 9.81 * veh.h / (veh.kroll_f + veh.kroll_r))
+        # only the CoG height above the roll axis rolls the body on its springs
+        h_axis = veh.wf * veh.rc_f + (1 - veh.wf) * veh.rc_r
+        expected = math.degrees(veh.m * 9.81 * (veh.h - h_axis) / (veh.kroll_f + veh.kroll_r))
         self.assertAlmostEqual(ch["roll_dyn"][-1], expected, delta=0.01)
+
+    def test_roll_centres_keep_total_load_transfer(self):
+        # Raising the roll centres cuts roll but the total load moved across the car is unchanged.
+        lo, hi = dict(default_car(), rc_f=0.0, rc_r=0.0), dict(default_car(), rc_f=0.10, rc_r=0.10)
+        (va, ca, _), (vb, cb, _) = step(lo, ay=1.0), step(hi, ay=1.0)
+        self.assertLess(cb["roll_dyn"][-1], 0.75 * ca["roll_dyn"][-1])
+        for ch, veh in ((ca, va), (cb, vb)):
+            moved = (ch["fzd_fr"][-1] - ch["fzd_fl"][-1]) / 2 * veh.tf + (ch["fzd_rr"][-1] - ch["fzd_rl"][-1]) / 2 * veh.tr
+            self.assertAlmostEqual(moved, veh.m * 9.81 * veh.h, delta=6)
+        # with roll centres, part of the load arrives at once through the links; shown
+        # with soft dampers, which otherwise pass load on only as the body rolls
+        soft = dict(damper_f=300, damper_r=300)
+        (_, ca, _), (_, cb, _) = step(dict(lo, **soft), ay=1.0), step(dict(hi, **soft), ay=1.0)
+        self.assertGreater(cb["fzd_fr"][5] - cb["fzd_fl"][5], ca["fzd_fr"][5] - ca["fzd_fl"][5] + 50)
+
+    def test_anti_dive_cuts_pitch_not_load_transfer(self):
+        (va, ca, _), (vb, cb, _) = step(dict(default_car(), anti_dive=0), ax=-1.0), step(dict(default_car(), anti_dive=60), ax=-1.0)
+        self.assertLess(cb["pitch"][-1], 0.8 * ca["pitch"][-1])
+        self.assertAlmostEqual(cb["fzd_fl"][-1] + cb["fzd_fr"][-1], ca["fzd_fl"][-1] + ca["fzd_fr"][-1], delta=3)
+        (_, sa, _), (_, sb, _) = step(dict(default_car(), anti_squat=0), ax=0.8), step(dict(default_car(), anti_squat=60), ax=0.8)
+        self.assertLess(abs(sb["pitch"][-1]), 0.8 * abs(sa["pitch"][-1]))
 
     def test_soft_dampers_overshoot_by_textbook_amount(self):
         # For a spring-mass-damper with damping ratio z < 1, a step input

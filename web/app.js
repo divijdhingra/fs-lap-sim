@@ -413,7 +413,8 @@ function drawCorner() {
     ["Front tyre grip used at slowest point", "%", (c) => 100 * Math.min(c.uf, 1), 0], ["Rear tyre grip used at slowest point", "%", (c) => 100 * Math.min(c.ur, 1), 0],
     ["Front tyre slip angle at slowest point", "deg", (c) => c.slip_f, 1], ["Rear tyre slip angle at slowest point", "deg", (c) => c.slip_r, 1],
     ["Steering angle at slowest point", "deg", (c) => c.steer, 1],
-    ["Body roll", "deg", (c) => Math.abs(c.roll), 2], ["Battery power at exit", "kW", (c) => c.p_exit, 1], ["Motor torque at exit", "N·m", (c) => c.torque_exit, 0],
+    ["Body roll", "deg", (c) => Math.abs(c.roll), 2],
+    ["Outside front tyre camber to the road", "deg", (c) => c.cam_fo, 2], ["Outside rear tyre camber to the road", "deg", (c) => c.cam_ro, 2], ["Battery power at exit", "kW", (c) => c.p_exit, 1], ["Motor torque at exit", "N·m", (c) => c.torque_exit, 0],
   ];
   let html = `<p class="sub">Starts ${fmt(a.s_start, 0)} m into the lap, slowest point at ${fmt(a.s_apex, 0)} m. Axle nearest its grip limit: <b>${lim(a)}</b>${b ? `, B: <b>${lim(b)}</b>` : ""}.</p>`;
   html += `<table class="ctab"><thead><tr><th></th><th>${b ? '<i class="sw a"></i> A' : ""}</th>${b ? '<th><i class="sw b"></i> B</th><th>B − A</th>' : ""}</tr></thead><tbody>`;

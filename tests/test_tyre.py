@@ -77,5 +77,25 @@ class Temperature(unittest.TestCase):
         self.assertEqual(run("fsuk_endurance", {"power_cap": 30, "wear_rate": 0})["tyres"]["wear_r"], 0)
 
 
+class Camber(unittest.TestCase):
+    def test_some_negative_camber_corners_best_but_brakes_worse(self):
+        def corner(cam):
+            car = dict(default_car(), camber_f=cam, camber_r=cam)
+            return Vehicle(car, default_conditions()).corner_speed(1 / 15.0)
+        self.assertGreater(corner(-2.0), corner(0.0))            # leaning in helps the loaded outside tyre
+        self.assertGreater(corner(-2.0), corner(-5.0))           # too much and both tyres lose grip
+        def brake(cam):
+            car = dict(default_car(), camber_f=cam, camber_r=cam)
+            return -Vehicle(car, default_conditions()).ax_min(20.0, 0.0)
+        self.assertGreater(brake(0.0), brake(-3.0))              # an upright tyre brakes best
+
+    def test_camber_gain_holds_the_outside_tyre_up(self):
+        car = default_car()
+        a = Vehicle(dict(car, camber_gain=0.0), default_conditions()).point_state(15, 1 / 15.0, 0.0)
+        b = Vehicle(dict(car, camber_gain=1.0), default_conditions()).point_state(15, 1 / 15.0, 0.0)
+        self.assertAlmostEqual(b["cam_fo"], car["camber_f"], places=6)
+        self.assertAlmostEqual(a["cam_fo"], car["camber_f"] + a["roll"], places=6)
+
+
 if __name__ == "__main__":
     unittest.main()
