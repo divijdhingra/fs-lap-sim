@@ -18,6 +18,8 @@ An interactive lap time simulator for **electric Formula Student cars**. Enter t
 - **Conditions:** driver model (cornering, braking and traction grip used, lift and coast, traction control), track roughness, battery charge, power limit, tyre temperature and wear, battery and motor temperature, track grip (dry to wet) and air temperature.
 - **Suspension and dampers:** a time-based replay of body roll, pitch and heave, road bumps, damper speed histograms, and their effect on lap time.
 - **Setup optimiser:** searches gear ratio, spring rates and damper rates for the selected event and loads the result into Setup B.
+- **Real competition cone layouts:** six past competition courses (FSG 2018, 2019 and 2023, FS Italy 2018, FS Spain 2019, FS East 2022, all driverless-class courses) rebuilt from their cone positions, each runnable as a single lap or a 22 km endurance.
+- **Track builder:** draw your own cone layout by placing points; the page lays out the cones, checks the layout against the rules' hairpin size, and the simulator finds the line a driver would take inside the cones.
 - **Points calculator:** runs the four dynamic events and scores them with the Formula Student formulas.
 - **Validation:** compares the simulation with a logged FS UK endurance lap, with error figures that update as you change the car.
 - **Saving setups:** name a setup and save it in the browser, or export it to a small JSON file and import it again later or on another computer.
@@ -43,7 +45,9 @@ The lowest of those speeds at each point is the fastest possible lap for a perfe
 | `fslap/bumps.py` | Road bumps: quarter-car model and ISO 8608 road roughness |
 | `fslap/solver.py` | The lap solver, energy accounting and corner detection |
 | `tools/build_validation.py` | Builds `data/validation.json` from logged data |
-| `tools/build_tracks.py` | Builds `data/tracks.json` from rulebook dimensions, open racing lines and GPS |
+| `tools/build_tracks.py` | Builds `data/tracks.json` from rulebook dimensions, open racing lines, GPS and cone positions |
+| `fslap/layout.py` | Turns a coned lane into the line the car drives |
+| `web/builder.js` | The draw-your-own layout editor |
 | `web/` and `index.html` | The page: track map, charts and tables |
 | `tests/` | Benchmark and sanity checks |
 
@@ -79,4 +83,4 @@ python3 -m unittest discover tests
 
 ## Credits
 
-Grand Prix racing lines: [TUM racetrack database](https://github.com/TUMFTM/racetrack-database) (LGPL-3.0). Python in the browser: Pyodide (MPL-2.0). Structure ideas (separate vehicle data, event library, per-event results) were inspired by MathWorks' [Formula Student Vehicle Simscape](https://github.com/simscape/Formula-Student-Vehicle-Simscape) project; no code or data was copied from it.
+Grand Prix racing lines: [TUM racetrack database](https://github.com/TUMFTM/racetrack-database) (LGPL-3.0). Competition cone layouts: [AMZ Racing FSSIM](https://github.com/AMZ-Racing/fssim) and [layout-merchant](https://github.com/papalotis/layout-merchant) (both MIT; see `data/raw/README.md`). Python in the browser: Pyodide (MPL-2.0). Structure ideas (separate vehicle data, event library, per-event results) were inspired by MathWorks' [Formula Student Vehicle Simscape](https://github.com/simscape/Formula-Student-Vehicle-Simscape) project; no code or data was copied from it.

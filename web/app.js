@@ -1,6 +1,8 @@
 // FS Lap Sim front end. Plain JavaScript, no build step, no external libraries.
 // The physics runs in Python inside a web worker (see worker.js).
 
+import { readLayouts, writeLayouts, layoutId, geometry, openBuilder, CONE } from "./builder.js";
+
 const $ = (id) => document.getElementById(id);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const COL = { A: css("--a"), B: css("--b"), ink: css("--ink"), ink2: css("--ink2"), ink3: css("--ink3"), line: css("--line"), bg: css("--bg"), surface: css("--surface") };
@@ -8,7 +10,7 @@ const SEQ = ["#27446f", "#3987E5", "#cfe6ff"];          // one hue, dark to ligh
 const DIV = ["#e8704a", "#6f746d", "#4aa3ff"];          // negative, neutral, positive
 
 const state = {
-  schema: null, tracks: {}, trackId: "fsuk_autocross",
+  schema: null, tracks: {}, order: [], trackId: "fsuk_autocross", dist: "lap", layouts: readLayouts(),
   setups: { A: null, B: null }, active: "A", compare: false,
   results: { A: null, B: null }, cursor: null, corner: 1, colour: "v",
 };
@@ -64,6 +66,8 @@ function drawMap() {
   const xs = tr.x, ys = tr.y, n = xs.length, pad = 34;
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (let i = 0; i < n; i++) { x0 = Math.min(x0, xs[i]); x1 = Math.max(x1, xs[i]); y0 = Math.min(y0, ys[i]); y1 = Math.max(y1, ys[i]); }
+  const cones = tr.cones ? ["left", "right", "orange"].flatMap((k) => (tr.cones[k] || []).map((p) => [p[0], p[1], k])) : [];
+  for (const c of cones) { x0 = Math.min(x0, c[0]); x1 = Math.max(x1, c[0]); y0 = Math.min(y0, c[1]); y1 = Math.max(y1, c[1]); }
   // lay long, narrow tracks (the acceleration strip) on their side
   const rot = (y1 - y0) > 1.4 * (x1 - x0 + 1) && w > h;
   // a true 90 degree turn (not a mirror image), so left stays left
@@ -81,6 +85,12 @@ function drawMap() {
   ctx.beginPath(); P.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
   if (tr.closed) ctx.closePath();
   ctx.stroke();
+  // cone layouts: the cones themselves, to scale (blue on the driver's left, yellow on the right)
+  const cr = Math.max(1.6, 0.16 * sc);
+  for (const c of cones) {
+    const a = rot ? c[1] : c[0], b = rot ? -c[0] : c[1];
+    ctx.fillStyle = CONE[c[2]]; ctx.beginPath(); ctx.arc(ox + (a - a0) * sc, h - oy - (b - b0) * sc, c[2] === "orange" ? cr * 1.4 : cr, 0, 7); ctx.fill();
+  }
   if (!res) return;
 
   const ch = CHANNELS[state.colour], scale = channelScale(res, state.colour), m = res.ch.v.length;
@@ -514,11 +524,12 @@ function finishBatch() {
 }
 let warmed = false;
 function runNow() {
+  if (!state.tracks[state.trackId]) return;      // a drawn layout that is still being built
   const want = state.compare ? ["A", "B"] : ["A"];
   const batch = ++reqId; pending = { batch, left: want.length, t0: performance.now(), keys: {} };
   const st = $("status"); st.textContent = "Simulating…"; st.classList.add("busy");
   for (const k of want) {
-    const req = { track: state.trackId, car: state.setups[k].car, cond: state.setups[k].cond }, key = JSON.stringify(req);
+    const req = { track: state.trackId, car: state.setups[k].car, cond: state.setups[k].cond, ...lapsFor(state.trackId) }, key = JSON.stringify(req);
     pending.keys[k] = key;
     if (seen.has(key)) { state.results[k] = seen.get(key); pending.left--; }
     else workers[k].postMessage({ id: `${batch}:${k}`, req });
@@ -531,13 +542,14 @@ function onWorker(e) {
     state.schema = m.schema;
     for (const t of m.tracks) state.tracks[t.id] = t;
     for (const k of ["A", "B"]) state.setups[k] = { car: { ...m.schema.car }, cond: { ...m.schema.cond } };
-    buildTabs(m.tracks); buildForm();
+    state.order = m.tracks.map((t) => t.id);
+    buildPicker(); buildForm();
     $("preset").innerHTML = `<option value="">Choose…</option>` + m.schema.presets.map((p) => `<option value="${p.id}">${p.name}</option>`).join("");
     $("sources").innerHTML = m.tracks.map((t) => `<b>${t.name}:</b> ${t.source}`).join(" ");
     runNow();
   } else if (asks[m.id]) {                 // a background run for the optimiser or points calculator
     const f = asks[m.id]; delete asks[m.id];
-    m.type === "result" ? f.ok(m.result) : f.fail(new Error(m.message));
+    m.type === "result" ? f.ok(m.result) : m.type === "track" ? f.ok(m.track) : f.fail(new Error(m.message));
   } else if (m.type === "result") {
     const [batch, k] = m.id.split(":");
     if (+batch !== pending.batch) return;
@@ -552,7 +564,7 @@ const asks = {};
 let askN = 0;
 function ask(track, setup) {
   const id = `x:${++askN}`;
-  return new Promise((ok, fail) => { asks[id] = { ok, fail }; workers[askN % 2 ? "A" : "B"].postMessage({ id, req: { track, car: setup.car, cond: setup.cond } }); });
+  return new Promise((ok, fail) => { asks[id] = { ok, fail }; workers[askN % 2 ? "A" : "B"].postMessage({ id, req: { track, car: setup.car, cond: setup.cond, ...lapsFor(track) } }); });
 }
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const paramDef = (key) => state.schema.groups.car.flatMap((g) => g.params).find((p) => p.key === key);
@@ -634,17 +646,113 @@ function drawPoints() {
   $("ptsOut").innerHTML = html;
 }
 
-// ---------- form and tabs ----------
-function buildTabs(tracks) {
-  const nav = $("tracks");
-  nav.innerHTML = tracks.map((t) => `<button data-id="${t.id}" class="${t.id === state.trackId ? "on" : ""}">${t.name}</button>`).join("");
-  nav.onclick = (e) => {
+// ---------- tracks: picker, distance, drawn layouts ----------
+const GROUPS = [
+  { id: "events", name: "Formula Student events", note: "The rulebook events, and the FS UK 2025 course rebuilt from logged GPS." },
+  { id: "cones", name: "Real competition cone layouts", note: "Cone positions from past competitions. These are the driverless-class courses, the only ones whose cone positions are published." },
+  { id: "gp", name: "Grand Prix circuits", note: "Full circuits, for comparison only. Formula Student cars do not race these." },
+  { id: "mine", name: "My layouts", note: "Draw your own cone layout. Layouts are saved in this browser." },
+];
+const groupOf = (t) => t.group || (t.kind === "circuit" ? "gp" : "events");
+const isCones = (id) => { const t = state.tracks[id]; return !!t && (groupOf(t) === "cones" || groupOf(t) === "mine"); };
+const enduLaps = (len) => Math.ceil(22000 / len);
+// Cone layouts are one lap long. "Endurance 22 km" runs as many laps as it takes to cover 22 km.
+const lapsFor = (id) => (state.dist === "endu" && isCones(id) ? { laps: enduLaps(state.tracks[id].length) } : {});
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function thumb(xs, ys, closed) {
+  const n = xs.length, step = Math.max(1, Math.floor(n / 90));
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let i = 0; i < n; i += step) { x0 = Math.min(x0, xs[i]); x1 = Math.max(x1, xs[i]); y0 = Math.min(y0, ys[i]); y1 = Math.max(y1, ys[i]); }
+  const tall = y1 - y0 > 1.4 * (x1 - x0 + 1);                  // lay tall, thin shapes on their side, as the map does
+  const W = 100, H = 60, pad = 6, a0 = tall ? y0 : x0, a1 = tall ? y1 : x1, b0 = tall ? -x1 : y0, b1 = tall ? -x0 : y1;
+  const sc = Math.min((W - 2 * pad) / Math.max(a1 - a0, 1), (H - 2 * pad) / Math.max(b1 - b0, 1));
+  const ox = (W - sc * (a1 - a0)) / 2, oy = (H - sc * (b1 - b0)) / 2;
+  let d = "";
+  for (let i = 0; i < n; i += step) { const a = tall ? ys[i] : xs[i], b = tall ? -xs[i] : ys[i]; d += `${i ? "L" : "M"}${(ox + (a - a0) * sc).toFixed(1)} ${(H - oy - (b - b0) * sc).toFixed(1)}`; }
+  return `<svg viewBox="0 0 ${W} ${H}" aria-hidden="true"><path d="${d}${closed ? "Z" : ""}" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+const lenText = (m) => (m >= 1000 ? (m / 1000).toFixed(2) + " km" : m.toFixed(0) + " m");
+function buildPicker() {
+  const card = (id, name, len, svg, extra = "") => `<div class="tcard"><button data-id="${id}" class="${id === state.trackId ? "on" : ""}"><span class="thumb">${svg}</span><b>${esc(name)}</b><span class="len">${len}</span></button>${extra}</div>`;
+  $("tracks").innerHTML = GROUPS.map((g) => {
+    let cards = state.order.map((id) => state.tracks[id]).filter((t) => groupOf(t) === g.id)
+      .map((t) => card(t.id, t.name, lenText(t.length) + (t.laps > 1 ? ` · ${t.laps} laps` : ""), thumb(t.x, t.y, t.closed))).join("");
+    if (g.id === "mine") cards = state.layouts.map((l, i) => {
+      const geo = geometry(l);
+      return card(layoutId(l), l.name, lenText(geo.length), thumb(geo.centre.map((p) => p[0]), geo.centre.map((p) => p[1]), true),
+        `<div class="tacts"><button data-edit="${i}">Edit</button><button data-del="${i}">Delete</button></div>`);
+    }).join("") + `<div class="tcard"><button class="tnew" id="newLayout"><span class="plus">+</span><b>Draw a new layout</b><span class="len">Place points, get cones</span></button></div>`;
+    return `<section><h3>${g.name}</h3><p>${g.note}</p><div class="tgrid">${cards}</div></section>`;
+  }).join("");
+  showTrack();
+}
+function showTrack() {
+  const t = state.tracks[state.trackId], l = state.layouts.find((q) => layoutId(q) === state.trackId);
+  const cones = isCones(state.trackId) || !!l;
+  $("distSeg").hidden = !cones;
+  $("distSeg").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.d === state.dist));
+  $("trackName").textContent = t ? t.name : l ? l.name : "";
+  if (t) {
+    const laps = cones && state.dist === "endu" ? enduLaps(t.length) : t.laps || 1;
+    $("trackMeta").textContent = lenText(t.length) + (laps > 1 ? ` · ${laps} laps, ${(laps * t.length / 1000).toFixed(1)} km` : "");
+    $("trackThumb").innerHTML = thumb(t.x, t.y, t.closed);
+  }
+  $("tracks").querySelectorAll("button[data-id]").forEach((b) => b.classList.toggle("on", b.dataset.id === state.trackId));
+}
+function togglePanel(open) { $("tracks").hidden = !open; $("trackBtn").setAttribute("aria-expanded", open ? "true" : "false"); }
+// Ask one engine to turn a drawn layout into a track, then hand the finished track to the other.
+function ensureTrack(l) {
+  const id = layoutId(l);
+  if (state.tracks[id]) return Promise.resolve(state.tracks[id]);
+  const geo = geometry(l), aid = `x:${++askN}`;
+  const spec = { id, name: l.name, centre: geo.centre.map((p) => [+p[0].toFixed(2), +p[1].toFixed(2)]), width: l.width, cones: geo.cones,
+    source: `Drawn in the track builder. Lane ${l.width} m wide, cones about every 4 m.` };
+  return new Promise((ok, fail) => { asks[aid] = { ok, fail }; workers.A.postMessage({ id: aid, op: "make", spec }); })
+    .then((t) => { workers.B.postMessage({ id: "x:add", op: "add", track: t }); state.tracks[id] = t; return t; });
+}
+async function selectTrack(id) {
+  togglePanel(false);
+  state.trackId = id; state.cursor = null; state.corner = 1; state.results = { A: null, B: null };
+  showTrack();
+  if (!state.tracks[id]) {
+    const l = state.layouts.find((q) => layoutId(q) === id), st = $("status");
+    if (!l) return selectTrack("fsuk_autocross");
+    st.textContent = "Building the layout…"; st.classList.add("busy");
+    try { await ensureTrack(l); } catch (err) { st.classList.remove("busy"); st.textContent = "Error: " + String(err.message || err).split("\n").filter(Boolean).pop(); return; }
+    if (state.trackId !== id) return;
+    showTrack();
+  }
+  drawMap(); runNow();
+}
+function saveLayout(l, original) {
+  const i = original == null ? -1 : state.layouts.findIndex((q) => q.name === original);
+  if (i >= 0) state.layouts[i] = l; else state.layouts.push(l);
+  if (!writeLayouts(state.layouts)) $("status").textContent = "This browser would not store the layout. It will work until you close the page.";
+  buildPicker(); selectTrack(layoutId(l));
+}
+function wirePicker() {
+  $("trackBtn").onclick = () => togglePanel($("tracks").hidden);
+  document.addEventListener("mousedown", (e) => { if (!$("tracks").hidden && !e.target.closest("#tracks, #trackBtn")) togglePanel(false); });
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape") togglePanel(false); });
+  $("tracks").onclick = (e) => {
     const b = e.target.closest("button"); if (!b) return;
-    state.trackId = b.dataset.id; state.cursor = null; state.corner = 1; state.results = { A: null, B: null };
-    nav.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
-    drawMap(); runNow();
+    const names = state.layouts.map((q) => q.name);
+    if (b.id === "newLayout") { togglePanel(false); openBuilder(null, names, saveLayout); }
+    else if (b.dataset.edit) { togglePanel(false); openBuilder(state.layouts[+b.dataset.edit], names, saveLayout); }
+    else if (b.dataset.del) {
+      const gone = layoutId(state.layouts[+b.dataset.del]);
+      state.layouts.splice(+b.dataset.del, 1); writeLayouts(state.layouts); buildPicker();
+      if (state.trackId === gone) selectTrack("fsuk_autocross");
+    } else if (b.dataset.id) selectTrack(b.dataset.id);
+  };
+  $("distSeg").onclick = (e) => {
+    const b = e.target.closest("button"); if (!b || b.dataset.d === state.dist) return;
+    state.dist = b.dataset.d; state.cursor = null; state.results = { A: null, B: null };
+    showTrack(); drawMap(); runNow();
   };
 }
+
+// ---------- form ----------
 function buildForm() {
   const g = state.schema.groups, form = $("form"), groups = [{ ...g.cond, scope: "cond" }].concat(g.car.map((x) => ({ ...x, scope: "car" })));
   form.innerHTML = groups.map((grp, gi) => `<details ${gi < 2 ? "open" : ""}><summary>${grp.name}</summary>` + grp.params.map((p) =>
@@ -771,7 +879,7 @@ function wire() {
   window.addEventListener("resize", () => { drawMap(); drawCharts(); drawRide(); });
 }
 
-wire();
+wire(); wirePicker();
 // One engine per setup, so A and B are simulated side by side rather than in turn.
 for (const k of ["A", "B"]) {
   workers[k] = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });

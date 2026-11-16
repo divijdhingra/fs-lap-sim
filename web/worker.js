@@ -1,7 +1,7 @@
 // Runs the Python physics engine off the main thread so the page stays responsive.
 import { loadPyodide } from "../vendor/pyodide/pyodide.mjs";
 
-const FILES = ["__init__.py", "params.py", "tyre.py", "thermal.py", "bumps.py", "vehicle.py", "ride.py", "solver.py", "api.py"];
+const FILES = ["__init__.py", "params.py", "tyre.py", "thermal.py", "layout.py", "bumps.py", "vehicle.py", "ride.py", "solver.py", "api.py"];
 let api = null;
 
 async function init() {
@@ -33,8 +33,13 @@ onmessage = (e) => { queue.push(e.data); if (!busy) { busy = true; setTimeout(dr
 function drain() {
   const job = queue.shift();
   if (!job) { busy = false; return; }
-  const { id, req } = job;
-  if (!(fromForm(id) && queue.some((q) => fromForm(q.id)))) {
+  const { id, req, op } = job;
+  if (op) {                                  // drawn layouts: build one, or accept one built by the other engine
+    try {
+      if (op === "make") postMessage({ type: "track", id, track: JSON.parse(api.make_track(JSON.stringify(job.spec))) });
+      else api.add_track(JSON.stringify(job.track));
+    } catch (err) { postMessage({ type: "error", id, message: String(err) }); }
+  } else if (!(fromForm(id) && queue.some((q) => fromForm(q.id)))) {
     try {
       const t0 = performance.now(), key = JSON.stringify(req);
       let text = cache.get(key);

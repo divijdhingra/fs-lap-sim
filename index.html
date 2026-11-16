@@ -16,7 +16,18 @@
       <p>Electric Formula Student lap time simulator</p>
     </div>
   </div>
-  <nav id="tracks" class="tabs" aria-label="Event"></nav>
+  <div class="picker">
+    <button id="trackBtn" class="track-btn" aria-haspopup="true" aria-expanded="false" title="Choose a track">
+      <span id="trackThumb" class="thumb"></span>
+      <span class="tb-text"><small>Track</small><b id="trackName">Loading…</b><i id="trackMeta"></i></span>
+      <span class="chev" aria-hidden="true">▾</span>
+    </button>
+    <div class="seg dist" id="distSeg" hidden role="group" aria-label="Distance">
+      <button data-d="lap" class="on">Single lap</button>
+      <button data-d="endu">Endurance 22 km</button>
+    </div>
+  </div>
+  <nav id="tracks" class="track-panel" aria-label="Tracks" hidden></nav>
   <div id="status" class="status" role="status">Loading physics engine…</div>
 </header>
 
@@ -172,15 +183,56 @@
           <li>The setup optimiser changes one input at a time (a coordinate search), so it can miss gains that need two inputs changed together. It ignores changes worth less than 0.03 s.</li>
           <li>Points use the structure of the Formula Student Rules 2024 dynamic scoring (skidpad and acceleration 50 points each, autocross 100, endurance 250; slowest scoring time 1.25, 1.5, 1.25 and 1.333 times the fastest; 5% of the points for finishing, 10% in endurance). Check the current rulebook before relying on the exact figures. The autocross here uses the FS UK endurance layout.</li>
           <li>The track is flat. Hills and banking are ignored.</li>
+          <li>Cone layouts (the real competition layouts and any you draw) give a lane, not a line. The driven line is found from the shape of the lane: the least-bent line that keeps the centre of the car 0.85 m from the cones (half a 1.4 m wide car plus 0.15 m), with a small penalty on extra distance. After smoothing, the closest the car's centre comes to a cone on the real layouts is 0.67 m, where the traced lane is under 3 m wide. It is the same every lap and does not change with the car. On the FSG 2018 layout it is about 5 s a lap quicker (20.1 s against 25.2 s) than driving down the middle of the lane.</li>
+          <li>The real competition cone layouts are the driverless-class courses (150 to 340 m a lap), because those are the only ones with published cone positions. Two come from a map shipped with a team's simulator; four were traced from competition video by their author, who estimated the overall scale.</li>
+          <li>For a layout you draw, the lane is the same width all the way round, and cones sit about every 4 m either side. Layouts are saved in your browser only.</li>
           <li>Endurance ignores the driver change stop, which is not timed.</li>
         </ul>
         <p><b>Tracks.</b> <span id="sources"></span></p>
         <p><b>Checks against known numbers.</b> With the default car the simulator gives about 4.1 s for the 75 m acceleration and 5.1 s on skidpad. Competitive electric Formula Student cars run roughly 3.3 to 4.5 s and 4.7 to 5.3 s. A wingless car with constant grip matches the textbook skidpad formula to within 0.06 s. Fed back into lap time, body movement costs the default car about 0.4 s on the FS UK lap; halving or doubling the damper rates changes that by only a few hundredths, while a badly underdamped car loses about a further 0.1 s. The spring and damper replay settles at exactly the steady model's tyre loads and roll angle, and its overshoot after a sudden input matches the textbook formula for a spring, mass and damper to within 2%. The bump model matches a step-by-step simulation of the same two masses over a sine-wave road to within 3%, and gives the expected best damper setting at a damping ratio of about 0.4. Against a logged FS UK endurance stint (see the validation panel on the FS UK Endurance tab) the default car with a perfect driver is about 19% quicker than the logged laps. With the preset fitted to that log, the lap time is within 0.4%, energy per lap within 2% and peak braking within 0.03 g. All three were fitted (through driver grip shares and drivetrain efficiency), so they are not evidence on their own. What was not fitted: the speed trace agrees to 3.6 km/h RMS with a correlation of 0.97. The fit has one known weakness: the simulated driver's peak cornering is 1.04 g against 1.17 g logged, because the real driver reaches the limit in a few corners only, while the simulated driver uses the same share of grip in every corner.</p>
       </div>
     </details>
-    <footer class="foot">Physics in Python, running in your browser through Pyodide. GP racing lines: TUM racetrack database (LGPL-3.0).</footer>
+    <footer class="foot">Physics in Python, running in your browser through Pyodide. GP racing lines: TUM racetrack database (LGPL-3.0). Competition cone layouts: AMZ Racing FSSIM and the layout-merchant collection (both MIT).</footer>
   </section>
 </main>
+<div id="builder" class="modal" hidden>
+  <div class="builder" role="dialog" aria-labelledby="bTitle">
+    <div class="b-head">
+      <h2 id="bTitle">Draw a new layout</h2>
+      <button id="bClose" class="ghost" aria-label="Close">Close</button>
+    </div>
+    <div class="b-body">
+      <div class="b-stage">
+        <canvas id="bCanvas"></canvas>
+        <div class="b-zoom"><button id="bZoomOut" class="ghost" aria-label="Zoom out">−</button><button id="bZoomIn" class="ghost" aria-label="Zoom in">+</button><button id="bFit" class="ghost">Fit</button></div>
+        <div class="b-key"><i style="background:#4aa3ff"></i>Left cones <i style="background:#f2c84b"></i>Right cones <i style="background:#f08a3c"></i>Start line</div>
+      </div>
+      <div class="b-side">
+        <label>Name<input id="bName" maxlength="40" placeholder="My layout"></label>
+        <label>Lane width, m<input id="bWidth" type="number" min="3" max="6" step="0.1" value="3.5"></label>
+        <div id="bStats" class="b-stats"></div>
+        <div id="bMsgs" class="b-msgs"></div>
+        <div class="b-tools">
+          <button id="bUndo" class="ghost">Undo</button>
+          <button id="bReverse" class="ghost">Reverse direction</button>
+          <button id="bClear" class="ghost">Clear</button>
+          <button id="bExample" class="ghost">Load an example</button>
+          <button id="bImport" class="ghost">Open a layout file</button>
+          <button id="bExport" class="ghost">Download as a file</button>
+          <input id="bFile" type="file" accept=".json,application/json" hidden>
+        </div>
+        <div class="b-help">
+          <p><b>How to draw.</b> Click to place points round the lap in the order the car drives them. The first point is the start line. Drag a point to move it. Click on the line to add a point between two others. Double-click or right-click a point to remove it. Scroll to zoom, hold Shift and drag to move the view.</p>
+          <p><b>What happens to it.</b> A smooth curve through your points becomes the middle of the lane. Cones are placed either side, half the lane width away, about every 4 m. The simulator then finds the line a driver would take inside those cones, using the width to open the corners out, and runs the car round that.</p>
+        </div>
+        <div class="b-foot">
+          <button id="bCancel" class="ghost">Cancel</button>
+          <button id="bSave" class="primary">Save and simulate</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 <script type="module" src="web/app.js"></script>
 </body>
 </html>

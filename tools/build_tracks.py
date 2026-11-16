@@ -13,11 +13,16 @@ Sources
 - FS UK endurance layout: the average driven line from a logged GPS stint.
   The raw log is NOT stored in this repository; if the .mat file is not
   supplied, the existing layout in data/tracks.json is kept.
+- Real competition cone layouts: cone positions in data/raw/cones/ (see the
+  README there for where each came from). The middle of the lane is found
+  from the two rows of cones, then fslap/layout.py works out the driven line.
 """
 import json, math, os, sys
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+from fslap.layout import build_track
 OUT = os.path.join(ROOT, "data", "tracks.json")
 
 
@@ -157,6 +162,67 @@ def build_fsuk(mat):
     return X, Y, K, d
 
 
+def order_loop(P):
+    """Put one row of cones in order round the lap: always step to the nearest
+    cone not yet visited."""
+    P = np.asarray(P, float); left = list(range(1, len(P))); o = [0]
+    while left:
+        d = np.hypot(*(P[left] - P[o[-1]]).T)
+        o.append(left.pop(int(np.argmin(d))))
+    return P[o]
+
+
+def dense_loop(P, ds=0.25):
+    x, y, _ = resample_closed(P[:, 0], P[:, 1], ds)
+    return np.column_stack([x, y])
+
+
+def lane_middle(left, right, start, heading_deg):
+    """Middle of the lane between two rows of cones, as points every 1 m in
+    driving order from the start line, with half the lane width at each."""
+    L, R = dense_loop(order_loop(left)), dense_loop(order_loop(right))
+    # first guess: halfway from each left-row point to the nearest right-row point
+    j = [int(np.argmin(np.hypot(*(R - p).T))) for p in L]
+    C = (L + R[j]) / 2
+    x, y, d = resample_closed(C[:, 0], C[:, 1], 1.0)
+    # which side of the point order the left row is on (the cone order may run backwards)
+    p0, p1 = np.array([x[0], y[0]]), np.array([x[1], y[1]])
+    l0 = L[int(np.argmin(np.hypot(*(L - p0).T)))]
+    side = 1.0 if (p1[0] - p0[0]) * (l0[1] - p0[1]) - (p1[1] - p0[1]) * (l0[0] - p0[0]) > 0 else -1.0
+    for _ in range(6):                      # slide each point until it is the same distance from both rows
+        x, y = smooth_closed(x, 1.0), smooth_closed(y, 1.0)
+        tx, ty = np.roll(x, -1) - np.roll(x, 1), np.roll(y, -1) - np.roll(y, 1)
+        n = np.hypot(tx, ty); nx, ny = -ty / n, tx / n
+        P = np.column_stack([x, y])
+        dl = np.array([np.hypot(*(L - p).T).min() for p in P]); dr = np.array([np.hypot(*(R - p).T).min() for p in P])
+        x, y = x + side * nx * (dl - dr) / 2, y + side * ny * (dl - dr) / 2
+        x, y, d = resample_closed(x, y, 1.0)
+    P = np.column_stack([x, y])
+    dl = np.array([np.hypot(*(L - p).T).min() for p in P]); dr = np.array([np.hypot(*(R - p).T).min() for p in P])
+    print("   lane middle off-centre by at most %.2f m, lane width %.1f to %.1f m" % (np.abs(dl - dr).max() / 2, (dl + dr).min(), (dl + dr).max()))
+    half = (dl + dr) / 2
+    # be cautious about the room: the narrowest the lane gets within 3 m either way
+    half = np.min([np.roll(half, q) for q in range(-3, 4)], axis=0)
+    # start at the start line and run in the driving direction
+    i0 = int(np.argmin(np.hypot(x - start[0], y - start[1])))
+    h = math.radians(heading_deg)
+    fwd = (x[(i0 + 3) % len(x)] - x[i0]) * math.cos(h) + (y[(i0 + 3) % len(x)] - y[i0]) * math.sin(h)
+    idx = (i0 + np.arange(len(x))) % len(x) if fwd > 0 else (i0 - np.arange(len(x))) % len(x)
+    return x[idx], y[idx], half[idx]
+
+
+def build_cones(fname):
+    c = json.load(open(os.path.join(ROOT, "data", "raw", "cones", fname)))
+    x, y, half = lane_middle(c["left"], c["right"], c["start"], c["heading_deg"])
+    cones = dict(left=c["left"], right=c["right"], orange=c["orange"])
+    t = build_track([float(v) for v in x], [float(v) for v in y], [float(v) for v in half], c["id"], c["name"],
+                    source=c["origin"] + " " + c["licence"] + ". Driven line: the least-bent line that keeps the car "
+                    "0.85 m from its centre to the cones.", cones=cones)
+    t["group"] = "cones"
+    t["lane_width"] = round(float(2 * np.median(half)), 2)
+    return t
+
+
 def main():
     old = {}
     if os.path.exists(OUT):
@@ -175,6 +241,8 @@ def main():
         for tid in ("fsuk_autocross", "fsuk_endurance"):
             if tid in old:
                 tracks.append(old[tid])
+    for f in ("fsg18.json", "fsi18.json", "fsg19.json", "fss19.json", "fse22.json", "fsg23.json"):
+        tracks.append(build_cones(f))
     tracks.append(build_gp("silverstone_gp", "Silverstone GP", "silverstone_gp_raceline.csv"))
     tracks.append(build_gp("hockenheim_gp", "Hockenheim GP", "hockenheim_gp_raceline.csv"))
     json.dump({"tracks": tracks}, open(OUT, "w"), separators=(",", ":"))
