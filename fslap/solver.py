@@ -34,10 +34,13 @@ def _corner_limits(veh, ks, offs=None, base=None):
     return [veh.corner_speed(k, offs[i], base[i]) if abs(k) > 1e-4 else base[i] for i, k in enumerate(ks)]
 
 
-def _passes(veh, ks, vlim, ds, v_start, v_end=None, offs=None):
+def _passes(veh, ks, vlim, ds, v_start, v_end=None, offs=None, h0=0):
     """Forward and backward passes over an open stretch of len(ks) points.
-    Returns speeds at each point."""
+    Returns speeds at each point. h0: track index of the first point, so the
+    answers from the previous solve at the same place can be used as guesses."""
     n = len(ks)
+    ha, hb = veh.hint_a, veh.hint_b
+    hn = len(ha) if ha is not None else 0
     v = list(vlim)
     v[0] = min(v[0], v_start)
     ax_max, ax_min = veh.ax_max, veh.ax_min
@@ -46,7 +49,12 @@ def _passes(veh, ks, vlim, ds, v_start, v_end=None, offs=None):
     two_ds = 2 * ds
     for i in range(n - 1):
         vi = v[i]
-        a, _ = ax_max(max(vi, 0.3), ks[i], offs[i])
+        if hn:
+            q = (h0 + i) % hn
+            a, _ = ax_max(max(vi, 0.3), ks[i], offs[i], ha[q])
+            ha[q] = a
+        else:
+            a, _ = ax_max(max(vi, 0.3), ks[i], offs[i])
         vn = math.sqrt(max(0.0, vi * vi + two_ds * a))
         if vn < v[i + 1]:
             v[i + 1] = vn
@@ -56,16 +64,24 @@ def _passes(veh, ks, vlim, ds, v_start, v_end=None, offs=None):
         vi = v[i]
         if v[i - 1] <= vi:
             continue
-        a = ax_min(vi, ks[i], offs[i])
+        if hn:
+            q = (h0 + i) % hn
+            a = ax_min(vi, ks[i], offs[i], hb[q])
+            hb[q] = a
+        else:
+            a = ax_min(vi, ks[i], offs[i])
         vp = math.sqrt(vi * vi - two_ds * a)
         if vp < v[i - 1]:
             v[i - 1] = vp
     if veh.lift_m > 0:
-        _lift_and_coast(veh, ks, v, ds, offs)
+        _lift_and_coast(veh, ks, v, ds, offs, h0)
     return v
 
 
-def _lift_and_coast(veh, ks, v, ds, offs):
+LIFT_FULL_DROP = 3.0     # m/s: speed lost in a braking zone at or above which the full lift distance is used
+
+
+def _lift_and_coast(veh, ks, v, ds, offs, h0=0):
     """Driver lifts off the throttle a set distance before each braking point
     and lets the car roll (no drive, no brakes) until the braking line is met.
     Saves energy in endurance at a small cost in lap time. The car is never
@@ -75,18 +91,27 @@ def _lift_and_coast(veh, ks, v, ds, offs):
     to the end of each braking zone as "no drive", then drive forward again
     with the old speeds as the ceiling."""
     n = len(v)
+    ha = veh.hint_a
+    hn = len(ha) if ha is not None else 0
     w = max(1, int(round(veh.lift_m / ds)))
     m, two_ds = veh.m, 2 * ds
     coast = [None] * n          # for no-drive points: the speed at the end of that braking zone
     b = 1
     while b < n - 1:
-        if v[b] >= v[b - 1] and v[b + 1] < v[b] and \
-                (v[b] * v[b] - v[b + 1] * v[b + 1]) / two_ds > 2 * veh.resist(v[b]) / m + 1.0:   # real braking, not just drag
+        if v[b] >= v[b - 1] and v[b + 1] < v[b]:
             e = b
             while e < n - 1 and v[e + 1] < v[e]:
                 e += 1
-            for i in range(max(0, b - w), e):
-                coast[i] = v[e]
+            # Lift the full distance before a real braking zone, and in proportion
+            # before a small dab of the brakes, so a tiny change in the lap cannot
+            # switch a whole lift on or off.
+            wz = int(round(w * min(1.0, (v[b] - v[e]) / LIFT_FULL_DROP)))
+            # real braking, not just drag or easing round a tightening bend: judged on
+            # the average slowing over the whole zone
+            hard = (v[b] * v[b] - v[e] * v[e]) / (two_ds * (e - b)) > 2 * veh.resist(v[b]) / m + 1.0
+            if wz >= 1 and hard:
+                for i in range(max(0, b - wz), e):
+                    coast[i] = v[e]
             b = e
         b += 1
     for i in range(n - 1):
@@ -95,7 +120,7 @@ def _lift_and_coast(veh, ks, v, ds, offs):
             # rolling, but never slower than the corner ahead will be taken
             vn = max(coast[i], math.sqrt(max(0.0, vi * vi - two_ds * veh.resist(vi) / m)))
         else:
-            a, _ = veh.ax_max(max(vi, 0.3), ks[i], offs[i])
+            a, _ = veh.ax_max(max(vi, 0.3), ks[i], offs[i], ha[(h0 + i) % hn] if hn else None)
             vn = math.sqrt(max(0.0, vi * vi + two_ds * a))
         if vn < v[i + 1]:
             v[i + 1] = vn
@@ -115,7 +140,7 @@ def _solve_lap(veh, track, vlim, standing, offs=None):
     rk = ks[j:] + ks[:j] + [ks[j]]
     rv = vlim[j:] + vlim[:j] + [vlim[j]]
     ro = None if offs is None else offs[j:] + offs[:j] + [offs[j]]
-    fly = _passes(veh, rk, rv, ds, rv[0], rv[0], ro)
+    fly = _passes(veh, rk, rv, ds, rv[0], rv[0], ro, j)
     fly = fly[n - j:n] + fly[:n - j]             # rotate back so index 0 = start line
     if not standing:
         return fly + [fly[0]]
@@ -295,6 +320,9 @@ def simulate(car, cond, track):
     veh = Vehicle(car, cond)
     track = dict(track)
     track["k"] = list(track["k"])
+    # Each solve starts its searches from the answers of the solve before (same
+    # place on the track), which is most of the speed of a multi-lap run.
+    veh.hint_a = [None] * len(track["k"]); veh.hint_b = [None] * len(track["k"])
     ds = track["ds"]
     laps = track.get("laps", 1)
     standing = track.get("standing_start", False)

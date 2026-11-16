@@ -497,11 +497,33 @@ function renderAll() { drawKpis(); drawCorner(); drawTable(); drawMap(); drawCha
 
 // ---------- running the simulation ----------
 function schedule(delay = 300) { clearTimeout(runTimer); runTimer = setTimeout(runNow, delay); }
+// Answers already worked out, keyed by the exact question, so nothing is simulated twice
+// (Setup A when only B changed, "Copy A into B", going back to an earlier tab).
+const seen = new Map(), SEEN_MAX = 16;
+function remember(key, result) { seen.set(key, result); if (seen.size > SEEN_MAX) seen.delete(seen.keys().next().value); }
+function finishBatch() {
+  const st = $("status");
+  if (!state.compare) state.results.B = null;
+  st.classList.remove("busy"); st.textContent = `Simulated in ${((performance.now() - pending.t0) / 1000).toFixed(2)} s`;
+  renderAll();
+  if (!warmed) {
+    // Warm up the second engine once the first answer is on screen, so the first A against B comparison is not slow.
+    warmed = true;
+    workers.B.postMessage({ id: "x:warm", req: { track: "accel", car: state.schema.car, cond: state.schema.cond } });
+  }
+}
+let warmed = false;
 function runNow() {
   const want = state.compare ? ["A", "B"] : ["A"];
-  const batch = ++reqId; pending = { batch, left: want.length, t0: performance.now() };
+  const batch = ++reqId; pending = { batch, left: want.length, t0: performance.now(), keys: {} };
   const st = $("status"); st.textContent = "Simulating…"; st.classList.add("busy");
-  for (const k of want) workers[k].postMessage({ id: `${batch}:${k}`, req: { track: state.trackId, car: state.setups[k].car, cond: state.setups[k].cond } });
+  for (const k of want) {
+    const req = { track: state.trackId, car: state.setups[k].car, cond: state.setups[k].cond }, key = JSON.stringify(req);
+    pending.keys[k] = key;
+    if (seen.has(key)) { state.results[k] = seen.get(key); pending.left--; }
+    else workers[k].postMessage({ id: `${batch}:${k}`, req });
+  }
+  if (pending.left === 0) finishBatch();
 }
 function onWorker(e) {
   const m = e.data, st = $("status");
@@ -520,11 +542,8 @@ function onWorker(e) {
     const [batch, k] = m.id.split(":");
     if (+batch !== pending.batch) return;
     state.results[k] = m.result;
-    if (--pending.left === 0) {
-      if (!state.compare) state.results.B = null;
-      st.classList.remove("busy"); st.textContent = `Simulated in ${((performance.now() - pending.t0) / 1000).toFixed(2)} s`;
-      renderAll();
-    }
+    remember(pending.keys[k], m.result);
+    if (--pending.left === 0) finishBatch();
   } else { st.classList.remove("busy"); st.textContent = "Error: " + m.message; console.error(m.message); }
 }
 

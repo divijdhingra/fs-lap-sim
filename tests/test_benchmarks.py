@@ -96,6 +96,13 @@ class Driver(unittest.TestCase):
         # it makes no difference to a perfect driver
         self.assertAlmostEqual(run("fsuk_autocross", cond={"traction_control": "On"})["time"], base, delta=0.01)
 
+    def test_lift_and_coast_grows_steadily_with_distance(self):
+        # More lift distance must always cost more time and save more energy, with no sudden jumps.
+        r = [run("fsuk_autocross", cond={"lift_coast": d}) for d in (0, 4, 8, 12)]
+        t, e = [x["time"] for x in r], [x["energy_kwh"] for x in r]
+        self.assertTrue(t[0] < t[1] < t[2] < t[3])
+        self.assertTrue(e[0] > e[1] > e[2] > e[3])
+
     def test_straight_line_power_not_reduced(self):
         # Top speed on a long straight is set by the motor, not by the driver setting.
         self.assertAlmostEqual(run("silverstone_gp", cond={"driver": 85})["v_max"], run("silverstone_gp")["v_max"], delta=0.1)

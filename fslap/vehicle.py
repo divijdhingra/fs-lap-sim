@@ -53,6 +53,7 @@ class Vehicle:
         # torque vectoring: largest sideways force it can move between axles (N) = turning moment / wheelbase
         self.tv_force = (c.get("tv_moment", 0.0) / c["wheelbase"]) if diff == "Torque vectoring" else 0.0
         self._of = self._or = 1.0           # open differential: share of an axle's traction that is usable
+        self.hint_a = self.hint_b = None    # last answers at each track point, used as starting guesses
         self.t_peak = c["motor_torque"]
         self.p_motor = c["motor_power"] * 1000.0
         self.rpm_nom = c["motor_rpm"]
@@ -186,9 +187,9 @@ class Vehicle:
             fl, fr, rl, rr = max(0.0, fl + d[0]), max(0.0, fr + d[1]), max(0.0, rl + d[2]), max(0.0, rr + d[3])
         return fl, fr, rl, rr
 
-    def _axle_caps(self, v, ax, ay, d=None):
+    def _axle_caps(self, v, ax, ay, d=None, fz=None):
         """Grip available on each axle: (Fy front, Fy rear, Fx front, Fx rear) in N."""
-        fl, fr, rl, rr = self.wheel_loads(v, ax, ay, d)
+        fl, fr, rl, rr = fz if fz is not None else self.wheel_loads(v, ax, ay, d)
         ls, fz0 = self.ls, self.fz0
         rv = math.sqrt(v)
         lost = (self.bump_f * rv, self.bump_f * rv, self.bump_r * rv, self.bump_r * rv)
@@ -334,31 +335,56 @@ class Vehicle:
             xf *= self._of; xr *= self._or
         return self.k_power * (xr if d == "RWD" else (xf + xr if d == "AWD" else xf))
 
-    def ax_max(self, v, kappa, d=None):
+    def ax_max(self, v, kappa, d=None, guess=None):
         """Best forward acceleration (m/s²) at speed v on a curve of curvature kappa.
         Returns (ax, feasible). feasible is False if the car cannot hold the
-        corner at this speed at all."""
+        corner at this speed at all. guess: the answer from a nearby case (the
+        same point on the lap before), which saves most of the search."""
         ay = v * v * kappa
         fm = self.motor_force(v)
         res = self.resist(v)
         m = self.m
-        ax = 0.0
-        for _ in range(12):            # load transfer depends on ax, so iterate to settle
-            xf, xr, ok, drag = self._fx_left(v, ax, ay, d)
-            new = (min(self._traction(xf, xr), fm) - res - drag) / m
-            if abs(new - ax) < 0.04:
-                ax = new
-                break
-            ax = 0.5 * (ax + new)
+        fx, trac = self._fx_left, self._traction
+        # Load transfer depends on ax, and grip depends on load transfer, so the
+        # answer has to be found by trial: try a value, see what acceleration the
+        # car could then make, and step towards where the two agree (secant steps).
+        t0 = None
+        if guess is None:
+            xf, xr, ok, drag = fx(v, 0.0, ay, d)
+            t0, ok0, drag0 = trac(xf, xr), ok, drag
+            ax = (min(t0, fm) - res - drag) / m
+            a0, ga0 = 0.0, ax
+            done = abs(ax) < 0.04
+        else:
+            ax, a0, ga0, done = guess, None, 0.0, False
+        if not done:
+            for it in range(14):
+                xf, xr, ok, drag = fx(v, ax, ay, d)
+                new = (min(trac(xf, xr), fm) - res - drag) / m
+                if abs(new - ax) < 0.02:
+                    ax = new
+                    break
+                if a0 is None:
+                    a0, ga0, ax = ax, new, new                # first step from a guess: just take it
+                    continue
+                step = ax - a0
+                slope = (new - ga0) / step if step != 0.0 else 0.0
+                a0, ga0 = ax, new
+                if it < 8 and -3.0 < slope < 0.9:
+                    ax = ax + (new - ax) / (1.0 - slope)      # secant step
+                else:
+                    ax = 0.5 * (ax + new)                     # cautious fallback
         if ok or ay == 0.0:
             return ax, True
         # Accelerating shifts load off the front tyres. If that leaves the front
         # unable to hold the corner, ease off until it can.
-        xf, xr, ok0, drag = self._fx_left(v, 0.0, ay, d)
-        coast = -(res + drag) / m
-        if ok0 and min(self._traction(xf, xr), fm) >= res + drag:
+        if t0 is None:
+            xf, xr, ok0, drag0 = fx(v, 0.0, ay, d)
+            t0 = trac(xf, xr)
+        coast = -(res + drag0) / m
+        if ok0 and min(t0, fm) >= res + drag0:
             lo = 0.0                       # can at least hold this speed
-        elif self._fx_left(v, coast, ay, d)[2]:
+        elif fx(v, coast, ay, d)[2]:
             lo = coast
         else:
             return coast, False
@@ -372,17 +398,18 @@ class Vehicle:
                 hi = mid
         return lo, True
 
-    def ax_min(self, v, kappa, d=None):
-        """Hardest braking (negative, m/s²) at speed v on a curve of curvature kappa."""
+    def ax_min(self, v, kappa, d=None, guess=None):
+        """Hardest braking (negative, m/s²) at speed v on a curve of curvature kappa.
+        guess: the answer from a nearby case, to start the search from."""
         ay = v * v * kappa
         res = self.resist(v)
-        ax = -10.0
+        ax = -10.0 if guess is None else guess
         b = self.bias
         for _ in range(12):
             xf, xr, _ok, drag = self._fx_left(v, ax, ay, d)
             fb = self.k_brake * min(xf / b, xr / (1 - b))
             new = -(fb + res + drag) / self.m
-            if abs(new - ax) < 0.04:
+            if abs(new - ax) < 0.02:
                 ax = new
                 break
             ax = 0.5 * (ax + new)
@@ -426,7 +453,7 @@ class Vehicle:
         m = self.m
         ay = v * v * kappa
         fz = self.wheel_loads(v, ax, ay, d)
-        cyf, cyr, cxf, cxr = self._axle_caps(v, ax, ay, d)
+        cyf, cyr, cxf, cxr = self._axle_caps(v, ax, ay, d, fz)
         fyf, fyr = m * ay * self.wf, m * ay * (1 - self.wf)
         tv_m = 0.0
         if self.tv_force > 0.0 and ay != 0.0:

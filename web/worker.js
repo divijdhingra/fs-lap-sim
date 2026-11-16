@@ -19,15 +19,36 @@ async function init() {
   postMessage({ type: "ready", schema: JSON.parse(api.schema()), tracks: JSON.parse(tracks).tracks });
 }
 
-onmessage = (e) => {
-  const { id, req } = e.data;
-  try {
-    const t0 = performance.now();
-    const result = JSON.parse(api.run(JSON.stringify(req)));
-    postMessage({ type: "result", id, result, ms: performance.now() - t0 });
-  } catch (err) {
-    postMessage({ type: "error", id, message: String(err) });
+// Requests wait in a queue. Two things keep the page quick without changing any result:
+// 1. If a newer request from the form is already waiting, older ones are skipped
+//    (their answers would be thrown away anyway).
+// 2. The last few answers are kept, so asking the same question twice is instant
+//    (for example Setup A when only Setup B changed, or switching back to a tab).
+const queue = [], cache = new Map(), CACHE_MAX = 12;
+let busy = false;
+const fromForm = (id) => !String(id).startsWith("x:");
+
+onmessage = (e) => { queue.push(e.data); if (!busy) { busy = true; setTimeout(drain, 0); } };
+
+function drain() {
+  const job = queue.shift();
+  if (!job) { busy = false; return; }
+  const { id, req } = job;
+  if (!(fromForm(id) && queue.some((q) => fromForm(q.id)))) {
+    try {
+      const t0 = performance.now(), key = JSON.stringify(req);
+      let text = cache.get(key);
+      if (text === undefined) {
+        text = api.run(key);
+        cache.set(key, text);
+        if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+      }
+      postMessage({ type: "result", id, result: JSON.parse(text), ms: performance.now() - t0 });
+    } catch (err) {
+      postMessage({ type: "error", id, message: String(err) });
+    }
   }
-};
+  setTimeout(drain, 0);
+}
 
 init().catch((err) => postMessage({ type: "fatal", message: String(err) }));
