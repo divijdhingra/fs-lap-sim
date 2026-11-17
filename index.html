@@ -126,6 +126,30 @@
       <div id="heatCharts"></div>
     </div>
 
+    <div class="card" id="ggvCard">
+      <div class="card-head"><h2>Grip envelope (g-g-v diagram)</h2><div id="ggvLegend" class="series-legend"></div></div>
+      <p class="sub">Each outline is the limit of what the car can do at one speed: cornering g across, acceleration (up) and braking (down). Straight-line braking is the bottom point, straight-line acceleration the top, and the widest points are flat-out cornering. In between, the tyres share their grip between turning and slowing or speeding up, which is why the outline is rounded. The outlines grow wider and deeper with speed because downforce adds grip, and flatter on top because the motor runs out of power. The dots are every step of the simulated lap, coloured by speed. A fast lap puts its dots on the outline; dots well inside it are grip the car, or the driver, is not using.</p>
+      <div class="ggv-wrap">
+        <canvas id="ggv"></canvas>
+        <div id="ggvKpis" class="kpis ggv-kpis"></div>
+      </div>
+      <p class="hint">Built from the same grip, motor and brake limits the lap solver uses, for the car as it starts the run (battery charge, tyre and motor temperatures from Conditions) with settled tyre loads. Dots can sit slightly outside an outline because the lap also includes body movement on the springs, bumps, and tyres that warm up and wear.</p>
+    </div>
+
+    <div class="card" id="sweepCard">
+      <div class="card-head"><h2>Sensitivity sweep</h2>
+        <div class="sweep-ctl">
+          <label>Change <select id="swParam"></select></label>
+          <label>from <input id="swFrom" type="number"></label>
+          <label>to <input id="swTo" type="number"></label>
+          <label>in <select id="swSteps"><option>5</option><option>7</option><option selected>9</option><option>11</option><option>15</option></select> steps</label>
+          <button id="swRun" class="primary">Run sweep</button>
+        </div>
+      </div>
+      <p class="sub">Pick one figure, and the simulator reruns this event with that figure stepped across a range while everything else in the active setup stays the same. The curve shows how much lap time, and energy, each unit of that figure is worth: the trade-off a designer needs when deciding whether, say, 5 kg saved is worth more than a little extra downforce. A steep curve means the figure matters; a flat one means it does not, on this track.</p>
+      <div id="swOut"><div class="empty">Choose a figure and press Run sweep.</div></div>
+    </div>
+
     <div class="card">
       <div class="card-head"><h2>Setup optimiser</h2><button id="optRun" class="primary">Find a faster setup for this event</button></div>
       <p class="sub">Starts from Setup A and tries different gear ratios, front and rear spring rates, and front and rear damper rates, one at a time, keeping any change that gains more than 0.03 s on the selected event. It takes about half a minute, longer for endurance. The answer is for this event only: gearing that suits the 75 m sprint will not suit endurance.</p>
@@ -183,6 +207,7 @@
           <li>The setup optimiser changes one input at a time (a coordinate search), so it can miss gains that need two inputs changed together. It ignores changes worth less than 0.03 s.</li>
           <li>Points use the structure of the Formula Student Rules 2024 dynamic scoring (skidpad and acceleration 50 points each, autocross 100, endurance 250; slowest scoring time 1.25, 1.5, 1.25 and 1.333 times the fastest; 5% of the points for finishing, 10% in endurance). Check the current rulebook before relying on the exact figures. The autocross here uses the FS UK endurance layout.</li>
           <li>The track is flat. Hills and banking are ignored.</li>
+          <li>The grip envelope is drawn for the car in its starting state with settled tyre loads, and treats left and right turns as mirror images. A sensitivity sweep changes one figure at a time, so it does not show how two figures interact (for example, more downforce usually wants stiffer springs).</li>
           <li>Cone layouts (the real competition layouts and any you draw) give a lane, not a line. The driven line is found from the shape of the lane: the least-bent line that keeps the centre of the car 0.85 m from the cones (half a 1.4 m wide car plus 0.15 m), with a small penalty on extra distance. After smoothing, the closest the car's centre comes to a cone on the real layouts is 0.67 m, where the traced lane is under 3 m wide. It is the same every lap and does not change with the car. On the FSG 2018 layout it is about 5 s a lap quicker (20.1 s against 25.2 s) than driving down the middle of the lane.</li>
           <li>The real competition cone layouts are the driverless-class courses (150 to 340 m a lap), because those are the only ones with published cone positions. Two come from a map shipped with a team's simulator; four were traced from competition video by their author, who estimated the overall scale.</li>
           <li>For a layout you draw, the lane is the same width all the way round, and cones sit about every 4 m either side. Layouts are saved in your browser only.</li>

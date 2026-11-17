@@ -208,3 +208,12 @@ form details[open] summary::after { content: "–"; }
 .save-row input:focus, .save-row select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 #saveNote { margin: 4px 0 6px; line-height: 1.45; }
 .seg[hidden] { display: none; }
+.ggv-wrap { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+#ggv { width: 100%; height: 420px; display: block; }
+.ggv-kpis { grid-template-columns: 1fr 1fr; }
+.sweep-ctl { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 12.5px; color: var(--ink2); }
+.sweep-ctl input, .sweep-ctl select { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; }
+.sweep-ctl input { width: 84px; text-align: right; }
+#swOut .chart canvas { height: 190px; }
+#swOut .sw-note { color: var(--ink2); font-size: 12.5px; line-height: 1.5; margin: 4px 0 8px; }
+@media (max-width: 1100px) { .ggv-wrap { grid-template-columns: 1fr; } }

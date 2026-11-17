@@ -503,7 +503,135 @@ function drawValidation() {
   mk("valPower", L.p.slice(0, n), (r) => r.ch.p.slice(0, n), true);
 }
 
-function renderAll() { drawKpis(); drawCorner(); drawTable(); drawMap(); drawCharts(); drawRide(); drawTyres(); drawHeat(); drawValidation(); }
+// ---------- grip envelope (g-g-v) ----------
+function drawGgv() {
+  const res = shown(), other = state.compare ? state.results[shownKey() === "A" ? "B" : "A"] : null;
+  if (!res || !res.ggv) return;
+  const cv = $("ggv"), { ctx, w, h } = setupCanvas(cv), g = res.ggv, both = !!(other && other.ggv);
+  const L = 44, R = 12, T = 10, B = 30;
+  let ayM = 0.5, axHi = 0.5, axLo = -0.5;
+  const sets = [g].concat(both ? [other.ggv] : []);
+  for (const q of sets) for (const c of q.curves) { ayM = Math.max(ayM, ...c.ay); axHi = Math.max(axHi, ...c.acc); axLo = Math.min(axLo, ...c.brake); }
+  for (let i = 0; i < res.ch.v.length; i++) { ayM = Math.max(ayM, Math.abs(res.ch.ay[i])); axHi = Math.max(axHi, res.ch.ax[i]); axLo = Math.min(axLo, res.ch.ax[i]); }
+  ayM *= 1.06; axHi *= 1.08; axLo *= 1.06;
+  const X = (a) => L + ((a + ayM) / (2 * ayM)) * (w - L - R), Y = (a) => T + ((axHi - a) / (axHi - axLo)) * (h - T - B);
+  ctx.font = "10.5px Inter, system-ui, sans-serif";
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (const t of niceTicks(axLo, axHi, 6)) {
+    ctx.strokeStyle = t === 0 ? "#4a4d4a" : "#262826"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(L, Math.round(Y(t)) + 0.5); ctx.lineTo(w - R, Math.round(Y(t)) + 0.5); ctx.stroke();
+    ctx.fillStyle = COL.ink3; ctx.fillText(String(t), L - 6, Y(t));
+  }
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (const t of niceTicks(-ayM, ayM, 8)) {
+    ctx.strokeStyle = t === 0 ? "#4a4d4a" : "#262826"; ctx.beginPath(); ctx.moveTo(Math.round(X(t)) + 0.5, T); ctx.lineTo(Math.round(X(t)) + 0.5, h - B); ctx.stroke();
+    ctx.fillStyle = COL.ink3; ctx.fillText(String(t), X(t), h - B + 5);
+  }
+  ctx.fillText("Cornering, g (right −, left +)", (L + w - R) / 2, h - 13);
+  ctx.save(); ctx.translate(11, (T + h - B) / 2); ctx.rotate(-Math.PI / 2); ctx.textBaseline = "middle"; ctx.fillText("Braking (−) / acceleration (+), g", 0, 0); ctx.restore();
+  // the lap's operating points, coloured by speed on the same scale as the outlines
+  const vLo = g.speeds[0] || 10, vHi = g.speeds[g.speeds.length - 1] || 30, col = (v) => ramp(SEQ, (v - vLo) / Math.max(1, vHi - vLo));
+  const n = res.ch.v.length, stride = Math.max(1, Math.floor(n / 2500));
+  ctx.globalAlpha = 0.55;
+  for (let i = 0; i < n; i += stride) { ctx.fillStyle = both ? COL[shownKey()] : col(res.ch.v[i]); ctx.beginPath(); ctx.arc(X(res.ch.ay[i]), Y(res.ch.ax[i]), 1.6, 0, 7); ctx.fill(); }
+  ctx.globalAlpha = 1;
+  const outline = (c, colour, width) => {
+    ctx.strokeStyle = colour; ctx.lineWidth = width; ctx.lineJoin = "round"; ctx.beginPath();
+    const m = c.ay.length, pts = [];
+    for (let i = 0; i < m; i++) pts.push([c.ay[i], c.acc[i]]);
+    for (let i = m - 1; i >= 0; i--) pts.push([c.ay[i], c.brake[i]]);
+    for (let i = 0; i < m; i++) pts.push([-c.ay[i], c.brake[i]]);
+    for (let i = m - 1; i >= 0; i--) pts.push([-c.ay[i], c.acc[i]]);
+    pts.forEach((p, i) => (i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1]))));
+    ctx.closePath(); ctx.stroke();
+  };
+  if (both) { for (const c of other.ggv.curves) outline(c, COL[shownKey() === "A" ? "B" : "A"], 1.4); for (const c of g.curves) outline(c, COL[shownKey()], 1.4); }
+  else for (const c of g.curves) outline(c, col(c.v), 2);
+  $("ggvLegend").innerHTML = both
+    ? `<span><i class="sw a"></i>Setup A</span><span><i class="sw b"></i>Setup B</span><span>one outline per speed, ${g.speeds.map((v) => fmt(kmh(v), 0)).join(", ")} km/h (inner to outer at the sides)</span>`
+    : g.curves.map((c) => `<span><i class="sw" style="background:${col(c.v)}"></i>${fmt(kmh(c.v), 0)} km/h</span>`).join("");
+  const lo = g.curves[0], hi = g.curves[g.curves.length - 1], ob = both ? other.ggv : null, last = (a) => a[a.length - 1];
+  const tiles = lo ? [
+    [`Cornering limit at ${fmt(kmh(lo.v), 0)} km/h`, (q) => last(q.curves[0].ay), "g", "The widest point of the slowest outline: tyre grip with almost no downforce."],
+    [`Cornering limit at ${fmt(kmh(hi.v), 0)} km/h`, (q) => last(last(q.curves).ay), "g", "The widest point of the fastest outline. The gain over the slow figure is what downforce adds."],
+    [`Straight-line braking at ${fmt(kmh(hi.v), 0)} km/h`, (q) => -last(q.curves).brake[0], "g", "The bottom of the fastest outline: tyre grip, downforce, drag and the brake bias."],
+    [`Straight-line acceleration at ${fmt(kmh(lo.v), 0)} km/h`, (q) => q.curves[0].acc[0], "g", "The top of the slowest outline: rear tyre grip or motor torque, whichever is lower."],
+    [`Straight-line acceleration at ${fmt(kmh(hi.v), 0)} km/h`, (q) => last(q.curves).acc[0], "g", "The top of the fastest outline: here the motor's power is the limit, less air drag."],
+    ["Lap points using over 95% of the envelope", (q) => q === g ? used(res) : used(other), "%", "Share of the lap spent within 5% of the outline for its speed. Higher means the car is being driven closer to its limit."],
+  ] : [];
+  $("ggvKpis").innerHTML = tiles.map(([l, f, u, tip]) => `<div class="kpi small" title="${tip}"><div class="l">${l}</div><div class="v">${fmt(f(g), u === "%" ? 0 : 2)}<small>${u}</small></div>` +
+    `<div class="d">${ob && ob.curves.length ? `<i class="sw ${shownKey() === "A" ? "b" : "a"}"></i>${shownKey() === "A" ? "B" : "A"} ${fmt(f(ob), u === "%" ? 0 : 2)}` : ""}</div></div>`).join("");
+}
+// Share of lap points within 5% of the outline for their speed (outline found by blending the two nearest speeds).
+function used(res) {
+  const cs = res.ggv.curves; if (!cs.length) return NaN;
+  const at = (c, ay, key) => { const a = c.ay, m = a.length; if (ay >= a[m - 1]) return null; let i = 0; while (a[i + 1] < ay) i++; const f = (ay - a[i]) / (a[i + 1] - a[i] || 1); return c[key][i] + f * (c[key][i + 1] - c[key][i]); };
+  let hit = 0, n = res.ch.v.length;
+  for (let i = 0; i < n; i++) {
+    const v = res.ch.v[i], ay = Math.abs(res.ch.ay[i]), ax = res.ch.ax[i], key = ax >= 0 ? "acc" : "brake";
+    let j = 0; while (j < cs.length - 2 && cs[j + 1].v < v) j++;
+    const c0 = cs[j], c1 = cs[Math.min(cs.length - 1, j + 1)], f = c1 === c0 ? 0 : Math.min(1, Math.max(0, (v - c0.v) / (c1.v - c0.v)));
+    const l0 = at(c0, ay, key), l1 = at(c1, ay, key);
+    if (l0 == null || l1 == null) { hit++; continue; }                    // beyond the cornering limit of an outline: at the limit
+    const lim = l0 + f * (l1 - l0), ayLim = c0.ay[c0.ay.length - 1] + f * (c1.ay[c1.ay.length - 1] - c0.ay[c0.ay.length - 1]);
+    if (Math.abs(lim) < 0.05 || ax / lim > 0.95 || ay / ayLim > 0.95) hit++;
+  }
+  return (100 * hit) / n;
+}
+
+// ---------- sensitivity sweep ----------
+const sweepParams = () => { const g = state.schema.groups; return [{ ...g.cond, scope: "cond" }].concat(g.car.map((x) => ({ ...x, scope: "car" }))).map((grp) => ({ ...grp, params: grp.params.filter((p) => !p.options) })); };
+const sweepDef = () => { const [scope, key] = $("swParam").value.split("."); return { scope, key, p: sweepParams().find((g) => g.scope === scope && g.params.some((q) => q.key === key)).params.find((q) => q.key === key) }; };
+function sweepRange() {
+  const { scope, key, p } = sweepDef(), cur = +state.setups[state.active][scope][key];
+  const dec = Math.max(0, -Math.floor(Math.log10(p.step || 1))), r = (x) => +Math.min(p.max, Math.max(p.min, x)).toFixed(dec);
+  let lo = r(cur - 0.2 * Math.abs(cur)), hi = r(cur + 0.2 * Math.abs(cur));
+  if (hi - lo < 4 * (p.step || 1)) { lo = r(cur - 0.25 * (p.max - p.min)); hi = r(cur + 0.25 * (p.max - p.min)); }
+  for (const id of ["swFrom", "swTo"]) { $(id).min = p.min; $(id).max = p.max; $(id).step = p.step; }
+  $("swFrom").value = lo; $("swTo").value = hi;
+}
+function initSweep() {
+  $("swParam").innerHTML = sweepParams().map((g) => `<optgroup label="${g.name}">${g.params.map((p) => `<option value="${g.scope}.${p.key}">${p.label}${p.unit ? ", " + p.unit : ""}</option>`).join("")}</optgroup>`).join("");
+  $("swParam").value = "car.mass_car"; if (!$("swParam").value) $("swParam").selectedIndex = 0;
+  sweepRange();
+  $("swParam").onchange = sweepRange;
+  $("swRun").onclick = () => runSweep().catch((err) => { $("swOut").innerHTML = `<div class="empty">Sweep stopped: ${esc(err.message)}</div>`; $("swRun").disabled = false; });
+}
+let sweepData = null;
+async function runSweep() {
+  const { scope, key, p } = sweepDef(), track = state.trackId, setup = clone(state.setups[state.active]), which = state.active;
+  let lo = Math.min(p.max, Math.max(p.min, parseFloat($("swFrom").value))), hi = Math.min(p.max, Math.max(p.min, parseFloat($("swTo").value)));
+  if (isNaN(lo) || isNaN(hi) || lo === hi) throw new Error("give two different numbers for the range");
+  if (lo > hi) [lo, hi] = [hi, lo];
+  const steps = +$("swSteps").value, dec = Math.max(0, -Math.floor(Math.log10(p.step || 1))) + 1;
+  const vals = Array.from({ length: steps }, (_, i) => +(lo + ((hi - lo) * i) / (steps - 1)).toFixed(dec));
+  $("swRun").disabled = true; let done = 0;
+  $("swOut").innerHTML = `<div class="empty">Running ${steps} simulations… 0 of ${steps}</div>`;
+  const runs = await Promise.all(vals.map((v) => { const c = clone(setup); c[scope][key] = v; return ask(track, c).then((r) => { $("swOut").firstChild.textContent = `Running ${steps} simulations… ${++done} of ${steps}`; return r; }); }));
+  sweepData = { p, vals, runs, which, track: state.tracks[track].name, cur: +setup[scope][key], laps: runs[0].laps };
+  $("swRun").disabled = false; drawSweep();
+}
+function drawSweep() {
+  const d = sweepData; if (!d) return;
+  const { p, vals, runs } = d, n = vals.length, unit = p.unit ? " " + p.unit : "", lab = p.label.charAt(0).toLowerCase() + p.label.slice(1);
+  const time = runs.map((r) => (r.finished ? r.time : NaN)), energy = runs.map((r) => r.energy_kwh);
+  const ok = time.map((t, i) => (isNaN(t) ? -1 : i)).filter((i) => i >= 0), dnf = n - ok.length;
+  let note = "";
+  if (ok.length >= 2) {
+    const a = ok[0], b = ok[ok.length - 1], per = (time[b] - time[a]) / (vals[b] - vals[a]), perE = (energy[b] - energy[a]) / (vals[b] - vals[a]);
+    const best = ok.reduce((m, i) => (time[i] < time[m] ? i : m), ok[0]);
+    const big = Math.abs(per) < 0.005 ? 100 : Math.abs(per) < 0.05 ? 10 : 1;
+    note = `On <b>${esc(d.track)}</b>${d.laps > 1 ? ` (${d.laps} laps)` : ""}, Setup ${d.which}: across this range each extra <b>${big}${unit}</b> of ${lab} changes the time by <b>${signed(per * big, 3)} s</b> and the energy used by <b>${signed(perE * big * 1000, 1)} Wh</b> on average. ` +
+      `Fastest in the range: <b>${vals[best]}${unit}</b> (${fmtTime(time[best])} s), ${fmt(Math.max(...ok.map((i) => time[i])) - time[best], 2)} s quicker than the slowest. Current value: ${d.cur}${unit}.` +
+      (dnf ? ` ${dnf} of the ${n} runs did not finish (battery empty) and are left out of the time curve.` : "");
+  } else note = "Fewer than two runs finished the event, so there is no time curve to show. Lower the power limit under Conditions and try again.";
+  $("swOut").innerHTML = `<p class="sw-note">${note}</p>` +
+    `<div class="chart"><div class="ct"><span>${d.laps > 1 ? "Total time" : "Lap time"}, s, against ${lab}${p.unit ? ", " + p.unit : ""}</span></div><canvas id="swT"></canvas></div>` +
+    `<div class="chart"><div class="ct"><span>Energy used (net of regen), kWh, against ${lab}${p.unit ? ", " + p.unit : ""}</span></div><canvas id="swE"></canvas></div>`;
+  const colour = COL[d.which];
+  for (const [id, data] of [["swT", time], ["swE", energy]]) drawLineChart($(id), { n, dots: true, xlabels: true, dx: 1, xfmt: (t) => String(vals[t]), series: [{ data, colour }] });
+}
+
+function renderAll() { drawKpis(); drawCorner(); drawTable(); drawMap(); drawCharts(); drawRide(); drawTyres(); drawHeat(); drawGgv(); drawValidation(); }
 
 // ---------- running the simulation ----------
 function schedule(delay = 300) { clearTimeout(runTimer); runTimer = setTimeout(runNow, delay); }
@@ -543,7 +671,7 @@ function onWorker(e) {
     for (const t of m.tracks) state.tracks[t.id] = t;
     for (const k of ["A", "B"]) state.setups[k] = { car: { ...m.schema.car }, cond: { ...m.schema.cond } };
     state.order = m.tracks.map((t) => t.id);
-    buildPicker(); buildForm();
+    buildPicker(); buildForm(); initSweep();
     $("preset").innerHTML = `<option value="">Choose…</option>` + m.schema.presets.map((p) => `<option value="${p.id}">${p.name}</option>`).join("");
     $("sources").innerHTML = m.tracks.map((t) => `<b>${t.name}:</b> ${t.source}`).join(" ");
     runNow();
@@ -876,7 +1004,7 @@ function wire() {
   map.addEventListener("mouseleave", () => setCursor(null));
   map.addEventListener("click", (e) => mapPointer(e, true));
   $("ctable").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-n]"); if (tr) selectCorner(+tr.dataset.n); });
-  window.addEventListener("resize", () => { drawMap(); drawCharts(); drawRide(); });
+  window.addEventListener("resize", () => { drawMap(); drawCharts(); drawRide(); drawGgv(); drawSweep(); });
 }
 
 wire(); wirePicker();

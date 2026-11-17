@@ -20,6 +20,8 @@ An interactive lap time simulator for **electric Formula Student cars**. Enter t
 - **Setup optimiser:** searches gear ratio, spring rates and damper rates for the selected event and loads the result into Setup B.
 - **Real competition cone layouts:** six past competition courses (FSG 2018, 2019 and 2023, FS Italy 2018, FS Spain 2019, FS East 2022, all driverless-class courses) rebuilt from their cone positions, each runnable as a single lap or a 22 km endurance.
 - **Track builder:** draw your own cone layout by placing points; the page lays out the cones, checks the layout against the rules' hairpin size, and the simulator finds the line a driver would take inside the cones.
+- **Grip envelope (g-g-v diagram):** the limit of combined cornering, braking and acceleration at five speeds, with every step of the simulated lap plotted on it.
+- **Sensitivity sweep:** step any one figure (mass, downforce, drag, power, grip, centre of gravity height and so on) across a range and plot lap time and energy against it.
 - **Points calculator:** runs the four dynamic events and scores them with the Formula Student formulas.
 - **Validation:** compares the simulation with a logged FS UK endurance lap, with error figures that update as you change the car.
 - **Saving setups:** name a setup and save it in the browser, or export it to a small JSON file and import it again later or on another computer.

@@ -3,6 +3,7 @@ import json
 from .params import PARAM_GROUPS, PRESETS, default_car, default_conditions
 from .solver import simulate
 from .layout import build_track
+from .ggv import ggv
 
 _TRACKS = {}
 
@@ -23,7 +24,9 @@ def run(text):
     track = _TRACKS[req["track"]]
     if req.get("laps"):                     # run a one-lap cone layout as a multi-lap endurance
         track = dict(track, laps=max(1, int(req["laps"])), kind="endurance" if int(req["laps"]) > 1 else track["kind"])
-    return json.dumps(simulate(car, cond, track), separators=(",", ":"))
+    out = simulate(car, cond, track)
+    out["ggv"] = ggv(car, cond)             # the grip envelope for this setup, drawn under the lap's operating points
+    return json.dumps(out, separators=(",", ":"))
 
 def add_track(text):
     """Register a finished track (used to hand a drawn layout to the second engine)."""
