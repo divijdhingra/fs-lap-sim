@@ -106,6 +106,7 @@ MATLAB itself was not available to me; the identical `.m` files were run in Octa
 | Acceleration 75 m, typical car (FS range 3.6 to 4.6 s) | 4.19 s, PASS |
 | Skidpad, typical car (winged FS range 4.7 to 5.4 s) | 4.76 s, PASS |
 | Power never above 80 kW / never outside grip envelope | PASS / PASS |
+| Endurance, 27 laps of FS UK: flat out at 80 kW the 6.5 kWh pack runs flat after 19 laps; capped at 25 kW it finishes (22.9 min, 5.2 kWh, 18 % left) | same as the website's check |
 
 Against the website engine (same car):
 
