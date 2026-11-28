@@ -83,6 +83,9 @@ python3 -m http.server 8000      # then visit http://localhost:8000
 python3 -m unittest discover tests
 ```
 
+A separate point-mass simulator in plain MATLAB (thesis method, same cars and tracks) lives
+in [`matlab/`](matlab/README.md).
+
 ## Credits
 
 Grand Prix racing lines: [TUM racetrack database](https://github.com/TUMFTM/racetrack-database) (LGPL-3.0). Competition cone layouts: [AMZ Racing FSSIM](https://github.com/AMZ-Racing/fssim) and [layout-merchant](https://github.com/papalotis/layout-merchant) (both MIT; see `data/raw/README.md`). Python in the browser: Pyodide (MPL-2.0). Structure ideas (separate vehicle data, event library, per-event results) were inspired by MathWorks' [Formula Student Vehicle Simscape](https://github.com/simscape/Formula-Student-Vehicle-Simscape) project; no code or data was copied from it.
